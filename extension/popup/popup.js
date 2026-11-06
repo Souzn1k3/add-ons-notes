@@ -1,6 +1,6 @@
 /* Popup: список/поиск/чтение/создание/настройки. */
 
-import { loadSettings, saveSettings, health, listNotes, getNote, createNote }
+import { loadSettings, saveSettings, health, listNotes, getNote, createNote, setWriteback }
   from "./agent_api.js";
 
 const $ = (id) => document.getElementById(id);
@@ -238,6 +238,7 @@ async function closeSettings() {
   const writeback = $("set-writeback").classList.contains("on");
   await saveSettings({ port, token, writeback });
   state.settings = { ...state.settings, port, token, writeback };
+  await setWriteback({ port, token, writeback });
   $("settings-modal").classList.add("hidden");
   await refreshAll(true);
 }

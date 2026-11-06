@@ -22,6 +22,26 @@ PORT_RANGE = range(8712, 8720)
 POLL_INTERVAL = 2.0
 
 state = {"index": None, "token": "", "port": 0, "writeback": False}
+STATE_FILE = os.path.join(state_dir(), "state.json")
+
+
+def load_writeback_flag():
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            return bool(json.load(f).get("writeback"))
+    except (OSError, ValueError):
+        return False
+
+
+def save_writeback_flag(on: bool):
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    data["writeback"] = bool(on)
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f)
 
 
 def log_setup():
@@ -126,6 +146,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json(401, {"error": "unauthorized"})
             return
         parsed = urllib.parse.urlparse(self.path)
+        try:
+            if self._settings_endpoints(parsed):
+                return
+        except Exception as e:
+            logging.exception("GET failed")
+            self._json(500, {"error": str(e)})
+            return
         path = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
         idx: SbnIndex = state["index"]
@@ -191,6 +218,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(401, {"error": "unauthorized"})
             return
         parsed = urllib.parse.urlparse(self.path)
+        if self._settings_endpoints(parsed) and self.command == "POST":
+            return
         if parsed.path not in ("/notes/create",):
             self._json(404, {"error": "not found"})
             return
@@ -206,6 +235,26 @@ class Handler(BaseHTTPRequestHandler):
         # writeback импортируется лениво, чтобы чисто-читательский путь не зависел от него
         from writeback import create_note
         self._json(200, create_note(body))
+
+    def _settings_endpoints(self, path_parsed):
+        """GET/POST /settings — флаг write-back, синхронизируемый с расширением."""
+        if path_parsed.path == "/settings" and self.command == "POST":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                self._json(400, {"error": "bad json"})
+                return True
+            if "writeback" in body:
+                state["writeback"] = bool(body["writeback"])
+                save_writeback_flag(state["writeback"])
+                logging.info("writeback flag: %s", state["writeback"])
+                self._json(200, {"ok": True, "writeback": state["writeback"]})
+                return True
+        if path_parsed.path == "/settings" and self.command == "GET":
+            self._json(200, {"writeback": bool(state["writeback"])})
+            return True
+        return False
 
 
 def watcher():
@@ -228,6 +277,7 @@ def main():
         sys.exit(1)
     logging.info("LocalState: %s", ls)
     state["token"] = load_or_create_token()
+    state["writeback"] = load_writeback_flag()
     state["index"] = SbnIndex(ls)
     state["index"].refresh(force=True)
     logging.info("initial index: %d notes", len(state["index"].notes))

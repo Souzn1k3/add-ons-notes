@@ -59,3 +59,17 @@ export function createNote({ port, token, title, body, bookmark }) {
     body: { title, body, bookmark },
   });
 }
+
+export async function setWriteback({ port, token, writeback }) {
+  try {
+    await request(port, token, "/settings", {
+      method: "POST",
+      timeoutMs: 5000,
+      body: { writeback },
+    });
+  } catch (_) { /* агент офлайн — флаг применится локально */ }
+}
+
+export function getWriteback({ port, token }) {
+  return request(port, token, "/settings", { timeoutMs: 5000 });
+}
