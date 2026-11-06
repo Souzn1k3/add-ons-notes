@@ -36,7 +36,8 @@ agent/      локальный мост (Python, только stdlib): чтен�
             (agent/create-note.ps1 + writeback.py)
 extension/  MV3-расширение: popup в стиле One UI (tokens.css),
             фоновая синхронизация кэша (service_worker)
-tools/      генератор иконок (tools/gen_icons.py)
+tools/      генератор иконок (tools/gen_icons.py) и read-only аудит
+            целостности данных Samsung Notes (tools/audit_sbn.py)
 docs/       референсы One UI, устройство формата Samsung Notes, API, write-back
 ```
 
