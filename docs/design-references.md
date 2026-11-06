@@ -1,17 +1,26 @@
-# Референсы дизайна и исследования формата
+# Референсы дизайна (One UI-стиль)
 
-Заполняется по мере исследования (M0/M1/M2).
+Интерфейс расширения вдохновлён языком дизайна One UI, но не копирует
+ассеты Samsung: используются собственные CSS-токены, системные шрифты и
+собственные SVG-иконки.
 
-## Исследования формата данных Samsung Notes (комьюнити, open source)
-
-- twangodev/sdocx — Rust/WASM-тулкит парсинга и рендера `.sdocx`: https://github.com/twangodev/sdocx
-- Mhemd139/Samsung_Notes (Inkport) — TS-парсер + веб-вьюер `.sdocx`, чтение Storage.sqlite: https://github.com/Mhemd139/Samsung_Notes
-- joshua1955/Windows-Samsung-Notes-Markdown-Exporter — экспорт текста из Storage.sqlite: https://github.com/joshua1955/Windows-Samsung-Notes-Markdown-Exporter
-- anymeofu/samsung-notes-exporter — сортировочный экспорт + верификация «.sdocx == zip(wdoc)»: https://github.com/anymeofu/samsung-notes-exporter
-- Flukinity/samsung-notes-archive-exporter — экспорт с сохранением папок: https://github.com/Flukinity/samsung-notes-archive-exporter
-
-## Дизайн One UI (вдохновение, без копирования ассетов)
+## Официальные материалы Samsung (для ориентира)
 
 - Samsung Design — официальный портал: https://design.samsung.com/global/index.html
-- Страница One UI у Samsung (концепт-страница продукта): https://www.samsung.com/us/apps/one-ui/
-- Скриншоты приложения Samsung Notes (Galaxy Store listing / samsung.com) — ориентир структуры списка и карточек.
+- Страница One UI о продуктах Samsung: https://www.samsung.com/us/apps/one-ui/
+
+## Что взято как принципы (без копирования графики)
+
+- крупные заголовки экранов и «воздух» между блоками;
+- карточки с крупными скруглениями и мягкими тенями;
+- нижние sheet-панели для настроек;
+- FAB для главного действия;
+- тёмная тема как полноценная, а не инверсия;
+- акцентный цвет, применяемый точечно (FAB, активные чипы, ссылки);
+- системный шрифт (Segoe UI / Roboto / SF) вместо фирменного.
+
+## Примечание о правах
+
+One UI, Samsung Notes и связанные названия принадлежат Samsung Electronics.
+Проект не аффилирован с Samsung и не использует их товарные знаки в брендинге
+расширения.

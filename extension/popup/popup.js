@@ -1,44 +1,33 @@
-/* Popup: список/поиск/чтение/создание/настройки. */
+/* Заметки: локальное приложение внутри попапа. Без сети и сторонних сервисов. */
 
 import {
-  loadSettings, saveSettings, health, listNotes, getNote, createNote, setWriteback,
-} from "./agent_api.js";
+  loadNotes, saveNotes, loadSettings, saveSettings, cleanupLegacy,
+  seedWelcomeIfNeeded, buildExport, validateImport, mergeNotes, makeId,
+  DEFAULT_SETTINGS,
+} from "./store.js";
+import {
+  esc, deriveTitle, previewText, countChecks, parseBody, toggleCheckLine,
+  fmtDate, sortNotes, bytesOf, fmtBytes,
+} from "./util.js";
 
 const $ = (id) => document.getElementById(id);
-const PORT_MIN = 8712, PORT_MAX = 8719;
 
 const state = {
-  settings: { port: PORT_MIN, token: "", writeback: false },
-  notes: [],      // в памяти — с полным text (если есть); в кэш пишется лёгкая версия
-  folder: "",
+  notes: [],
+  settings: { ...DEFAULT_SETTINGS },
+  view: "home",
+  currentId: null,
   query: "",
-  online: null,
-  appRunning: false,
+  editorReturn: "home",
+  dirty: false,
+  saveTimer: null,
+  deleteArmedAt: 0,
+  clearArmedAt: 0,
 };
 
-/* ---------- утилиты ---------- */
+/* ---------- helpers ---------- */
 
-function fmtDate(ms) {
-  if (!ms) return "";
-  const d = new Date(Number(ms));
-  const pad = (n) => String(n).padStart(2, "0");
-  const today = new Date();
-  const same = (a, b) => a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  if (same(d, today)) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
-}
-
-function setEmpty(message) {
-  const el = $("home-empty");
-  if (el) el.textContent = message;
-}
-
-function esc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}
+const findNote = (id) => state.notes.find((n) => n.id === id);
 
 let toastTimer = null;
 function toast(msg) {
@@ -46,355 +35,425 @@ function toast(msg) {
   t.textContent = msg;
   t.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove("show"), 3000);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2400);
+}
+
+function setSaveState(text) {
+  $("save-state").textContent = text || "";
+}
+
+function applyAppearance() {
+  const root = document.documentElement;
+  root.dataset.accent = state.settings.accent;
+  if (state.settings.theme === "auto") root.removeAttribute("data-theme");
+  else root.dataset.theme = state.settings.theme;
 }
 
 function switchView(name) {
-  for (const v of ["view-home", "view-reader", "view-composer"]) {
+  state.view = name;
+  for (const v of ["view-home", "view-reader", "view-editor"]) {
     $(v).classList.toggle("hidden", v !== name);
   }
 }
 
-/* ---------- статус ---------- */
+/* ---------- домашний экран ---------- */
 
-function renderStatus() {
-  const dot = $("status-dot");
-  const txt = $("status-text");
-  if (state.online === null) {
-    dot.className = "status-dot";
-    txt.textContent = "Подключение…";
-  } else if (state.online) {
-    dot.className = "status-dot ok";
-    txt.textContent = state.appRunning
-      ? "Мост активен, синхронизация работает"
-      : "Мост активен (Samsung Notes закрыт)";
-  } else {
-    dot.className = "status-dot err";
-    txt.textContent = "Агент не запущен — agent\\install.bat";
-  }
+function noteCardHtml(n) {
+  const title = deriveTitle(n);
+  const preview = previewText(n);
+  const checks = countChecks(n.body);
+  const badge = checks.total
+    ? `<span class="badge ${checks.done === checks.total ? "done" : ""}">${checks.done}/${checks.total}</span>`
+    : "";
+  return `
+    <article class="note-card" data-id="${esc(n.id)}">
+      <div class="t">${esc(title)}</div>
+      <div class="p">${esc(preview)}</div>
+      <div class="meta">
+        <span>${fmtDate(n.updated)}</span>
+        ${badge}
+      </div>
+      <button class="star-btn ${n.pinned ? "on" : ""}" data-pin="${esc(n.id)}" title="${n.pinned ? "Открепить" : "Закрепить"}" aria-label="Закрепить">
+        <svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+      </button>
+    </article>`;
 }
 
-/* ---------- список ---------- */
+function renderHome() {
+  const box = $("notes-list");
+  const q = state.query.trim().toLowerCase();
+  let items = sortNotes(state.notes);
+  if (q) {
+    items = items.filter((n) =>
+      deriveTitle(n).toLowerCase().includes(q) ||
+      String(n.body || "").toLowerCase().includes(q));
+  }
+  if (!items.length) {
+    box.innerHTML = `<div class="empty"><div class="big">🗒️</div>${
+      q ? "Ничего не найдено" : "Заметок пока нет.<br>Нажми «+», чтобы создать первую."
+    }</div>`;
+    return;
+  }
+  const pinned = items.filter((n) => n.pinned);
+  const rest = items.filter((n) => !n.pinned);
+  let html = "";
+  if (pinned.length) {
+    html += `<div class="section-label">Закреплённые</div>` + pinned.map(noteCardHtml).join("");
+  }
+  if (rest.length) {
+    if (pinned.length) html += `<div class="section-label">Все заметки</div>`;
+    html += rest.map(noteCardHtml).join("");
+  }
+  box.innerHTML = html;
 
-function renderFolders() {
-  const box = $("folders");
-  const counts = {};
-  const names = {};
-  for (const n of state.notes) {
-    if (!n.folder_uuid) continue;
-    counts[n.folder_uuid] = (counts[n.folder_uuid] || 0) + 1;
-    if (!names[n.folder_uuid]) names[n.folder_uuid] = n.folder_name || "Папка";
+  for (const card of box.querySelectorAll(".note-card")) {
+    card.addEventListener("click", () => openReader(card.dataset.id));
   }
-  const chips = [{ uuid: "", name: "Все", count: state.notes.length }];
-  for (const uuid of Object.keys(counts)) {
-    chips.push({ uuid, name: names[uuid], count: counts[uuid] });
-  }
-  box.innerHTML = chips.map((c) =>
-    `<button class="chip ${c.uuid === state.folder ? "active" : ""}" data-uuid="${esc(c.uuid)}">` +
-    `${esc(c.name)} <span class="n">${c.count}</span></button>`).join("");
-  for (const b of box.querySelectorAll(".chip")) {
-    b.addEventListener("click", () => {
-      state.folder = b.dataset.uuid;
-      renderFolders();
-      renderList();
+  for (const star of box.querySelectorAll(".star-btn")) {
+    star.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      togglePin(star.dataset.pin);
     });
   }
 }
 
-function filtered() {
-  const q = state.query.trim().toLowerCase();
-  return state.notes.filter((n) => {
-    if (state.folder && n.folder_uuid !== state.folder) return false;
-    if (!q) return true;
-    return String(n.title || "").toLowerCase().includes(q) ||
-      String(n.preview || "").toLowerCase().includes(q);
-  });
+async function togglePin(id) {
+  const n = findNote(id);
+  if (!n) return;
+  n.pinned = !n.pinned;
+  n.updated = Date.now();
+  await saveNotes(state.notes);
+  renderHome();
+  if (state.view === "reader" && state.currentId === id) renderReader(n);
 }
 
-const star = `<span class="fav"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg></span>`;
+/* ---------- просмотр ---------- */
 
-function renderList() {
-  const box = $("notes-list");
-  const items = filtered();
-  if (!items.length) {
-    box.innerHTML = `<div class="empty" id="home-empty">${
-      state.notes.length ? "Ничего не найдено" : "Заметок нет"
-    }</div>`;
+function renderReader(note) {
+  $("reader-title").textContent = deriveTitle(note);
+  const checks = countChecks(note.body);
+  $("reader-meta").innerHTML =
+    `<span>Изменено: ${fmtDate(note.updated)}</span>` +
+    (checks.total ? `<span>${checks.done} из ${checks.total} выполнено</span>` : "");
+  const pinBtn = $("btn-read-pin");
+  pinBtn.classList.toggle("pinned", !!note.pinned);
+  pinBtn.title = note.pinned ? "Открепить" : "Закрепить";
+
+  const body = $("reader-body");
+  body.replaceChildren();
+  const lines = parseBody(note.body || "");
+  if (!lines.some((l) => l.type === "check" || l.text.trim())) {
+    const d = document.createElement("div");
+    d.className = "line";
+    d.textContent = "Пустая заметка";
+    d.style.color = "var(--text-hint)";
+    body.appendChild(d);
     return;
   }
-  box.innerHTML = items.map((n) => `
-    <article class="note-card" data-uuid="${esc(n.uuid)}">
-      <div class="t">${n.is_locked ? "" : (n.favorite ? star : "")}${esc(n.title)}</div>
-      ${n.is_locked
-        ? `<div class="p">🔒 Заметка защищена паролем — откройте её в приложении Samsung Notes.</div>`
-        : `<div class="p">${esc(n.preview || "Пустая заметка")}</div>`}
-      <div class="meta">
-        <span>${fmtDate(n.modified_at)}</span>
-        ${n.folder_name && state.folder === "" ? `<span>${esc(n.folder_name)}</span>` : ""}
-        ${n.has_checkbox ? `<span class="badge">чек-лист</span>` : ""}
-        ${n.has_bullets && !n.has_checkbox ? `<span class="badge">список</span>` : ""}
-        ${n.media_count ? `<span class="badge">медиа ${n.media_count}</span>` : ""}
-        ${n.is_locked ? `<span class="badge lock">🔒</span>` : ""}
-      </div>
-    </article>`).join("");
-  for (const c of box.querySelectorAll(".note-card")) {
-    c.addEventListener("click", () => openNote(c.dataset.uuid));
+  for (const ln of lines) {
+    if (ln.type === "check") {
+      const label = document.createElement("label");
+      label.className = "chk" + (ln.checked ? " done" : "");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = ln.checked;
+      input.addEventListener("change", () => onToggleCheck(note.id, ln.line));
+      const span = document.createElement("span");
+      span.textContent = ln.text || "";
+      label.append(input, span);
+      body.appendChild(label);
+    } else {
+      const d = document.createElement("div");
+      d.className = "line";
+      d.textContent = ln.text;
+      body.appendChild(d);
+    }
   }
 }
 
-/* ---------- чтение ---------- */
-
-async function openNote(uuid) {
-  const cached = state.notes.find((n) => n.uuid === uuid);
-  $("reader-title").textContent = cached ? cached.title : "Заметка";
-  $("reader-meta").innerHTML = cached
-    ? `${fmtDate(cached.modified_at)}${cached.folder_name ? " · " + esc(cached.folder_name) : ""}`
-    : "";
-  $("reader-body").textContent = cached && cached.text ? cached.text : "Загрузка…";
+function openReader(id) {
+  const n = findNote(id);
+  if (!n) return;
+  state.currentId = id;
+  renderReader(n);
   switchView("view-reader");
-  if (cached && cached.text) return; // текст уже есть
-  try {
-    const res = await getNote({ ...state.settings, uuid });
-    const note = res.note || res;
-    $("reader-title").textContent = note.title;
-    $("reader-meta").innerHTML =
-      `${fmtDate(note.modified_at)}${note.folder_name ? " · " + esc(note.folder_name) : ""}` +
-      (note.document_type ? " · рукопись/рисунок (текст частично)" : "");
-    $("reader-body").textContent = note.text || "Пустая заметка";
-    if (cached) cached.text = note.text; // чтобы повторно не тянуть
-  } catch (e) {
-    if (cached && cached.preview) {
-      $("reader-body").textContent = cached.preview;
-    }
-    toast("Не удалось загрузить текст: " + e.message);
-  }
 }
 
-/* ---------- создание ---------- */
+async function onToggleCheck(id, lineIndex) {
+  const n = findNote(id);
+  if (!n) return;
+  n.body = toggleCheckLine(n.body, lineIndex);
+  n.updated = Date.now();
+  await saveNotes(state.notes);
+  renderReader(n);
+}
 
-async function saveComposed() {
-  const title = $("compose-title").value.trim();
-  const body = $("compose-text").value;
-  if (!title && !body.trim()) {
-    toast("Заметка пустая");
-    return;
+/* ---------- редактор ---------- */
+
+function openEditor(id) {
+  const n = id ? findNote(id) : null;
+  state.currentId = n ? n.id : null;
+  state.dirty = false;
+  state.editorReturn = state.view === "reader" ? "reader" : "home";
+  $("editor-heading").textContent = n ? "Заметка" : "Новая заметка";
+  $("edit-title").value = n ? n.title || "" : "";
+  $("edit-body").value = n ? n.body || "" : "";
+  setSaveState("");
+  switchView("view-editor");
+  setTimeout(() => (n ? $("edit-body") : $("edit-title")).focus(), 60);
+}
+
+function scheduleSave() {
+  state.dirty = true;
+  setSaveState("Сохранение…");
+  clearTimeout(state.saveTimer);
+  state.saveTimer = setTimeout(flushEditor, 350);
+}
+
+async function flushEditor() {
+  if (state.view !== "view-editor" || !state.dirty) return;
+  state.dirty = false;
+  const title = $("edit-title").value;
+  const body = $("edit-body").value;
+  if (!title.trim() && !body.trim()) {
+    setSaveState("");
+    return; // пустой черновик не сохраняем
   }
-  if (!state.settings.token) {
-    toast("Сначала настройте токен агента (Настройки)");
-    return;
+  let note = state.currentId ? findNote(state.currentId) : null;
+  const now = Date.now();
+  if (!note) {
+    note = { id: makeId(), title: "", body: "", pinned: false, created: now, updated: now };
+    state.notes.push(note);
+    state.currentId = note.id;
   }
-  const btn = $("compose-save");
-  btn.disabled = true;
-  btn.textContent = "Сохранение…";
-  try {
-    const res = await createNote({ ...state.settings, title, body });
-    $("compose-title").value = "";
-    $("compose-text").value = "";
+  note.title = title;
+  note.body = body;
+  note.updated = now;
+  await saveNotes(state.notes);
+  setSaveState("Сохранено");
+}
+
+async function leaveEditor() {
+  clearTimeout(state.saveTimer);
+  await flushEditor();
+  const note = state.currentId ? findNote(state.currentId) : null;
+  if (!note) {
     switchView("view-home");
-    btn.textContent = "Сохранить";
-    btn.disabled = false;
-    if (res && res.ok) {
-      toast("Заметка создана в Samsung Notes");
-    } else {
-      toast("Заметка отправлена (проверьте список в приложении)");
-    }
-    // агент переиндексирует через ~2-3 c после автосохранения
-    setTimeout(() => refreshAll(true), 3500);
-  } catch (e) {
-    btn.textContent = "Сохранить";
-    btn.disabled = false;
-    toast("Ошибка: " + e.message);
-  }
-}
-
-/* ---------- синхронизация ---------- */
-
-async function tryPort(port) {
-  try {
-    await health(port, state.settings.token);
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
-async function autodetectPort() {
-  // агент поднимается на 8712..8719; если сохранённый недоступен — сканируем
-  for (let p = PORT_MIN; p <= PORT_MAX; p++) {
-    if (await tryPort(p)) {
-      state.settings.port = p;
-      await saveSettings({ port: p });
-      return p;
-    }
-  }
-  return null;
-}
-
-function toLight(n) {
-  // без полного text — экономим квоту chrome.storage.local
-  const { text, ...light } = n;
-  return light;
-}
-
-async function fetchNotes(query = "") {
-  const s = state.settings;
-  const res = await listNotes({ ...s, query });
-  return res.notes || [];
-}
-
-async function refreshAll(force = false) {
-  const s = state.settings;
-  if (!s.token) {
-    state.online = false;
-    renderStatus();
-    setEmpty("Не указан токен агента — откройте настройки");
+    renderHome();
     return;
   }
-  try {
-    const h = await health(s.port, s.token);
-    state.online = true;
-    state.appRunning = !!h.app_running;
-    renderStatus();
-    state.notes = await fetchNotes(state.query);
-    renderFolders();
-    renderList();
-    // кэш для офлайн-открытия попапа (лёгкая версия, без text)
-    chrome.storage.local.set({
-      cached_notes: state.notes.map(toLight),
-      cached_at: Date.now(),
-    }).catch(() => { /* квота — не критично */ });
-  } catch (e) {
-    // если порт не тот — пробуем найти агента на 8712-8719
-    if (e.status !== 401) {
-      const p = await autodetectPort();
-      if (p) {
-        try {
-          const h = await health(p, s.token);
-          state.online = true;
-          state.appRunning = !!h.app_running;
-          state.settings.port = p;
-          renderStatus();
-          state.notes = await fetchNotes(state.query);
-          renderFolders();
-          renderList();
-          chrome.storage.local.set({
-            cached_notes: state.notes.map(toLight),
-            cached_at: Date.now(),
-          }).catch(() => {});
-          return;
-        } catch (_) { /* упали в обычный офлайн-путь */ }
-      }
-    }
-    state.online = false;
-    renderStatus();
-    const got = await chrome.storage.local.get({ cached_notes: [] });
-    if (got.cached_notes.length) {
-      state.notes = got.cached_notes;
-      $("status-text").textContent = "Агент недоступен, показан локальный кэш";
-      renderFolders();
-      renderList();
-    } else {
-      setEmpty(e.status === 401
-        ? "Неверный токен агента — сверьте token.txt в настройках"
-        : "Запустите агента на ПК (agent\\install.bat)");
-    }
+  if (state.editorReturn === "reader") {
+    state.currentId = note.id;
+    renderReader(note);
+    switchView("view-reader");
+  } else {
+    switchView("view-home");
+    renderHome();
   }
+}
+
+function insertChecklist() {
+  const ta = $("edit-body");
+  const pos = ta.selectionStart || 0;
+  const before = ta.value.slice(0, pos);
+  const after = ta.value.slice(ta.selectionEnd || pos);
+  const lineStart = before.lastIndexOf("\n") + 1;
+  const prefix = before.slice(lineStart);
+  const already = /^[-*]\s+\[[ xX]\]/.test(prefix);
+  let insert = "";
+  let caretShift = 0;
+  if (prefix.trim() === "" && !already) {
+    insert = "- [ ] ";
+    caretShift = insert.length;
+  } else if (!already) {
+    // переносим на новую строку
+    insert = "\n- [ ] ";
+    caretShift = insert.length;
+  } else {
+    toast("Здесь уже чек-лист");
+    return;
+  }
+  ta.value = ta.value.slice(0, pos) + insert + ta.value.slice(pos);
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = pos + caretShift;
+  scheduleSave();
+}
+
+/* ---------- удаление ---------- */
+
+function armDelete(button, action) {
+  const now = Date.now();
+  if (now - state.deleteArmedAt < 3000) {
+    state.deleteArmedAt = 0;
+    button.classList.remove("armed");
+    action();
+    return;
+  }
+  state.deleteArmedAt = now;
+  toast("Нажмите «Удалить» ещё раз для подтверждения");
+  button.classList.add("armed");
+  setTimeout(() => button.classList.remove("armed"), 3000);
+}
+
+async function deleteCurrentNote() {
+  const n = findNote(state.currentId);
+  if (!n) return;
+  state.notes = state.notes.filter((x) => x.id !== n.id);
+  await saveNotes(state.notes);
+  state.currentId = null;
+  switchView("view-home");
+  renderHome();
+  toast("Заметка удалена");
 }
 
 /* ---------- настройки ---------- */
 
-function openSettings() {
-  const s = state.settings;
-  $("set-port").value = s.port;
-  $("set-token").value = s.token;
-  $("set-writeback").classList.toggle("on", !!s.writeback);
-  $("settings-modal").classList.remove("hidden");
+function renderSettingsUi() {
+  for (const b of document.querySelectorAll("#theme-seg button")) {
+    b.classList.toggle("on", b.dataset.theme === state.settings.theme);
+  }
+  for (const b of document.querySelectorAll("#accent-row button")) {
+    b.classList.toggle("on", b.dataset.accent === state.settings.accent);
+  }
+  const size = bytesOf(state.notes);
+  $("storage-info").textContent =
+    `${state.notes.length} заметок · ${fmtBytes(size)} · хранится только в браузере`;
 }
 
-async function closeSettings() {
-  const port = Math.max(PORT_MIN, Math.min(PORT_MAX,
-    parseInt($("set-port").value, 10) || PORT_MIN));
-  const token = $("set-token").value.trim();
-  const writeback = $("set-writeback").classList.contains("on");
-  await saveSettings({ port, token, writeback });
-  state.settings = { ...state.settings, port, token, writeback };
-  if (token) {
-    try {
-      await health(port, token);
-    } catch (_) {
-      const found = await autodetectPort();
-      if (found) await saveSettings({ port: found });
-    }
+function openSettings() {
+  renderSettingsUi();
+  $("settings").classList.remove("hidden");
+}
+
+function closeSettings() {
+  $("settings").classList.add("hidden");
+}
+
+function downloadExport() {
+  const data = buildExport(state.notes, state.settings);
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const name = `notes-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast("Экспорт: " + name);
+}
+
+async function importFile(file) {
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const incoming = validateImport(payload);
+    const { notes, added, updated } = mergeNotes(state.notes, incoming);
+    state.notes = notes;
+    await saveNotes(state.notes);
+    renderHome();
+    renderSettingsUi();
+    toast(`Импорт: добавлено ${added}, обновлено ${updated}`);
+  } catch (e) {
+    toast("Не удалось импортировать: " + e.message);
   }
-  await setWriteback({
-    ...state.settings, writeback,
-  });
-  $("settings-modal").classList.add("hidden");
-  await refreshAll(true);
 }
 
 /* ---------- инициализация ---------- */
 
 async function init() {
+  await cleanupLegacy();
   state.settings = await loadSettings();
+  applyAppearance();
+  await seedWelcomeIfNeeded();
+  state.notes = await loadNotes();
+  renderHome();
+  switchView("view-home");
 
   $("btn-settings").addEventListener("click", openSettings);
-  $("set-close").addEventListener("click", closeSettings);
-  $("set-test").addEventListener("click", async () => {
-    const port = parseInt($("set-port").value, 10) || PORT_MIN;
-    const token = $("set-token").value.trim();
-    try {
-      const h = await health(port, token);
-      toast(`Связь есть: ${h.notes} заметок${h.app_running ? ", приложение открыто" : ""}`);
-    } catch (e) {
-      toast("Нет связи: " + e.message);
-    }
-  });
-  $("set-writeback").addEventListener("click", (ev) => {
-    ev.currentTarget.classList.toggle("on");
-  });
-  $("settings-modal").addEventListener("click", (ev) => {
-    if (ev.target === $("settings-modal")) $("set-close").click();
+  $("btn-settings-close").addEventListener("click", closeSettings);
+  $("settings").addEventListener("click", (ev) => {
+    if (ev.target === $("settings")) closeSettings();
   });
 
   $("search").addEventListener("input", (ev) => {
     state.query = ev.target.value;
-    renderList();
-    // сетевой поиск — дебаунс, когда есть строка
-    clearTimeout(state._qsTimer);
-    state._qsTimer = setTimeout(async () => {
-      if (state.online && state.query.trim()) {
-        try {
-          state.notes = await fetchNotes(state.query);
-          renderFolders();
-          renderList();
-        } catch (_) { /* локальный фильтр уже работает */ }
-      } else if (state.online && !state.query.trim()) {
-        await refreshAll(true);
-      }
-    }, 350);
+    renderHome();
   });
 
-  $("btn-back-read").addEventListener("click", () => switchView("view-home"));
-  $("btn-back-compose").addEventListener("click", () => switchView("view-home"));
-  $("fab").addEventListener("click", () => {
-    $("compose-title").value = "";
-    $("compose-text").value = "";
-    switchView("view-composer");
-  });
-  $("compose-save").addEventListener("click", saveComposed);
-  $("compose-cancel").addEventListener("click", () => switchView("view-home"));
+  $("fab").addEventListener("click", () => openEditor(null));
 
-  const cached = await chrome.storage.local.get({ cached_notes: [] });
-  if (cached.cached_notes.length) {
-    state.notes = cached.cached_notes;
-    renderFolders();
-    renderList();
-  } else {
-    setEmpty("Загрузка…");
+  $("btn-read-back").addEventListener("click", () => {
+    switchView("view-home");
+    renderHome();
+  });
+  $("btn-read-pin").addEventListener("click", () => togglePin(state.currentId));
+  $("btn-read-edit").addEventListener("click", () => openEditor(state.currentId));
+  $("btn-read-delete").addEventListener("click", (ev) => {
+    armDelete(ev.currentTarget, deleteCurrentNote);
+  });
+
+  $("btn-edit-back").addEventListener("click", leaveEditor);
+  $("btn-insert-check").addEventListener("click", insertChecklist);
+  for (const el of [$("edit-title"), $("edit-body")]) {
+    el.addEventListener("input", scheduleSave);
   }
-  await refreshAll();
-  $("search").focus({ preventScroll: true });
+
+  for (const b of document.querySelectorAll("#theme-seg button")) {
+    b.addEventListener("click", async () => {
+      state.settings.theme = b.dataset.theme;
+      applyAppearance();
+      await saveSettings(state.settings);
+      renderSettingsUi();
+    });
+  }
+  for (const b of document.querySelectorAll("#accent-row button")) {
+    b.addEventListener("click", async () => {
+      state.settings.accent = b.dataset.accent;
+      applyAppearance();
+      await saveSettings(state.settings);
+      renderSettingsUi();
+    });
+  }
+
+  $("btn-export").addEventListener("click", downloadExport);
+  $("btn-import").addEventListener("click", () => $("import-file").click());
+  $("import-file").addEventListener("change", async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    if (file) await importFile(file);
+  });
+  $("btn-clear").addEventListener("click", (ev) => {
+    armDelete(ev.currentTarget, async () => {
+      state.notes = [];
+      await saveNotes(state.notes);
+      renderHome();
+      renderSettingsUi();
+      toast("Все заметки удалены");
+    });
+  });
+
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape") return;
+    if (!$("settings").classList.contains("hidden")) closeSettings();
+    else if (state.view === "editor") leaveEditor();
+    else if (state.view === "reader") {
+      switchView("view-home");
+      renderHome();
+    }
+  });
+
+  const flushNow = () => {
+    if (state.view === "editor" && state.dirty) {
+      clearTimeout(state.saveTimer);
+      flushEditor();
+    }
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushNow();
+  });
+  window.addEventListener("pagehide", flushNow);
 }
 
 document.addEventListener("DOMContentLoaded", init);

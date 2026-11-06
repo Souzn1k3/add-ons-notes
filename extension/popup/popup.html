@@ -9,11 +9,11 @@
 </head>
 <body>
 
-  <!-- ======== ДОМ: список + поиск ======== -->
+  <!-- ======== СПИСОК ======== -->
   <section id="view-home" class="view">
     <header class="head">
-      <h1 id="home-title">Заметки</h1>
-      <button id="btn-settings" class="icon-btn" title="Настройки">
+      <h1>Заметки</h1>
+      <button id="btn-settings" class="icon-btn" title="Настройки" aria-label="Настройки">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h0a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h0a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v0a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>
       </button>
     </header>
@@ -23,78 +23,88 @@
       <input id="search" type="search" placeholder="Поиск заметок" autocomplete="off">
     </div>
 
-    <div class="status-row">
-      <span id="status-dot" class="status-dot"></span>
-      <span id="status-text">Подключение…</span>
-    </div>
+    <div id="notes-list" class="list"></div>
 
-    <div id="folders" class="chips"></div>
-
-    <div id="notes-list" class="list">
-      <div class="empty" id="home-empty">Загрузка…</div>
-    </div>
-
-    <button id="fab" class="fab" title="Новая заметка">
+    <button id="fab" class="fab" title="Новая заметка" aria-label="Новая заметка">
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
     </button>
   </section>
 
-  <!-- ======== ЧТЕНИЕ ЗАМЕТКИ ======== -->
-  <section id="view-reader" class="view subview hidden">
+  <!-- ======== ПРОСМОТР ======== -->
+  <section id="view-reader" class="view hidden">
     <header class="head">
-      <button id="btn-back-read" class="icon-btn" title="Назад">
+      <button id="btn-read-back" class="icon-btn" title="Назад" aria-label="Назад">
         <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
       </button>
       <h1 id="reader-title">Заметка</h1>
+      <button id="btn-read-pin" class="icon-btn" title="Закрепить" aria-label="Закрепить">
+        <svg viewBox="0 0 24 24" class="pin-ic"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+      </button>
+      <button id="btn-read-edit" class="icon-btn" title="Редактировать" aria-label="Редактировать">
+        <svg viewBox="0 0 24 24"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.5 6.5l3 3"/></svg>
+      </button>
+      <button id="btn-read-delete" class="icon-btn danger" title="Удалить" aria-label="Удалить">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13"/></svg>
+      </button>
     </header>
-    <div class="reader-meta" id="reader-meta"></div>
-    <div class="reader-body" id="reader-body"></div>
+    <div id="reader-meta" class="reader-meta"></div>
+    <div id="reader-body" class="reader-body"></div>
   </section>
 
-  <!-- ======== СОЗДАНИЕ ЗАМЕТКИ ======== -->
-  <section id="view-composer" class="view subview hidden">
+  <!-- ======== РЕДАКТОР ======== -->
+  <section id="view-editor" class="view hidden">
     <header class="head">
-      <button id="btn-back-compose" class="icon-btn" title="Назад">
+      <button id="btn-edit-back" class="icon-btn" title="Назад" aria-label="Назад">
         <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
       </button>
-      <h1>Новая заметка</h1>
+      <h1 id="editor-heading">Заметка</h1>
+      <span id="save-state" class="save-state"></span>
     </header>
-    <div class="composer-body">
-      <input id="compose-title" type="text" placeholder="Заголовок (необязательно)">
-      <textarea id="compose-text" placeholder="Текст заметки…"></textarea>
-      <div class="composer-actions">
-        <button id="compose-save" class="btn btn-primary">Сохранить</button>
-        <button id="compose-cancel" class="btn btn-secondary">Отмена</button>
+    <div class="editor-body">
+      <input id="edit-title" type="text" placeholder="Заголовок" autocomplete="off">
+      <div class="editor-toolbar">
+        <button id="btn-insert-check" class="tool-btn" type="button">☑ Чек-лист</button>
       </div>
+      <textarea id="edit-body" placeholder="Текст заметки…&#10;Чек-лист: начни строку с «- [ ]»"></textarea>
     </div>
   </section>
 
   <!-- ======== НАСТРОЙКИ ======== -->
-  <div id="settings-modal" class="modal-mask hidden">
-    <div class="modal">
+  <div id="settings" class="modal-mask hidden">
+    <div class="sheet">
+      <div class="sheet-grab"></div>
       <h2>Настройки</h2>
-      <p class="hint">
-        Порт и токен берутся из файлов <b>port.txt</b> и <b>token.txt</b>
-        в папке <b>%LOCALAPPDATA%\SBNAgent</b>. Обычно значения подставляются
-        автоматически при первом запуске.
-      </p>
-      <div class="field">
-        <label>Порт агента</label>
-        <input id="set-port" type="number" min="8712" max="8719">
-      </div>
-      <div class="field">
-        <label>Токен агента</label>
-        <input id="set-token" type="text" spellcheck="false">
-      </div>
-      <div class="switch-row">
-        <div class="txt">
-          Запись новых заметок в Samsung Notes
-          <div class="sub">Экспериментальная функция. Перед первой записью выполняется полный бэкап.</div>
+
+      <div class="group">
+        <div class="group-label">Тема</div>
+        <div class="segmented" id="theme-seg">
+          <button data-theme="auto">Авто</button>
+          <button data-theme="light">Светлая</button>
+          <button data-theme="dark">Тёмная</button>
         </div>
-        <div id="set-writeback" class="switch"></div>
       </div>
-      <button id="set-test" class="btn btn-secondary">Проверить связь</button>
-      <button id="set-close" class="btn btn-primary">Готово</button>
+
+      <div class="group">
+        <div class="group-label">Акцент</div>
+        <div class="accents" id="accent-row">
+          <button data-accent="blue" title="Синий"></button>
+          <button data-accent="green" title="Зелёный"></button>
+          <button data-accent="violet" title="Фиолетовый"></button>
+          <button data-accent="orange" title="Оранжевый"></button>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-label">Данные</div>
+        <button id="btn-export" class="row-btn">Экспорт заметок (JSON)</button>
+        <button id="btn-import" class="row-btn">Импорт заметок (JSON)</button>
+        <input id="import-file" type="file" accept="application/json,.json" hidden>
+        <button id="btn-clear" class="row-btn danger">Удалить все заметки</button>
+        <div id="storage-info" class="storage-info"></div>
+      </div>
+
+      <button id="btn-settings-close" class="btn btn-primary">Готово</button>
+      <div class="version">Заметки 2.0 · локально в браузере</div>
     </div>
   </div>
 
