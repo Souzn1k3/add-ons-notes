@@ -15,6 +15,18 @@
 - тема: авто / светлая / тёмная; акцент: синий, зелёный, фиолетовый, оранжевый;
 - интерфейс по мотивам One UI: крупные заголовки, карточки, скругления, FAB.
 
+## Скриншоты
+
+| Светлая тема | Тёмная тема |
+|---|---|
+| ![Главный экран, светлая тема](docs/screenshots/home-light.png) | ![Главный экран, тёмная тема](docs/screenshots/home-dark.png) |
+
+| Заметка с чек-листом | Редактор |
+|---|---|
+| ![Просмотр заметки с чек-листом](docs/screenshots/reader.png) | ![Редактор заметки](docs/screenshots/editor.png) |
+
+![Настройки](docs/screenshots/settings.png)
+
 ## Установка
 
 📦 **Скачать:** [Releases](https://github.com/Souzn1k3/add-ons-notes/releases)

@@ -2,6 +2,7 @@
    Акцент — переключается в настройках (data-accent на <html>). */
 
 :root {
+  color-scheme: light;
   --accent: #1b71e5;
   --accent-press: #1259c3;
   --accent-soft: rgba(27, 113, 229, 0.10);
@@ -37,6 +38,7 @@
 /* тёмная тема: авто по системе или принудительно */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #0c0e10;
     --card: #191c1f;
     --card-press: #22262a;
@@ -52,6 +54,7 @@
   }
 }
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #0c0e10;
   --card: #191c1f;
   --card-press: #22262a;
