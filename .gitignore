@@ -1,0 +1,29 @@
+# --- приватные данные пользователя (ЗАПРЕЩЕНО коммитить) ---
+*LocalState*/
+*wdoc*/
+*Thumbnail*/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.sbn
+*.sdocx
+backups/
+exports/
+out/
+agent_state/
+token.txt
+
+# --- сборка ---
+__pycache__/
+*.pyc
+node_modules/
+dist/
+*.zip
+
+# --- IDE ---
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
