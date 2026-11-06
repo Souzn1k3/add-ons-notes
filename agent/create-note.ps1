@@ -1,10 +1,16 @@
 ﻿param(
     [long]$TargetHwnd = 0,
-    [string]$Text = '',
-    [switch]$TypeOnly
+    [string]$Text = ''
 )
 
 $ErrorActionPreference = 'Stop'
+$LogFile = Join-Path $env:LOCALAPPDATA 'SBNAgent\bridge.log'
+
+function Log-Step([string]$msg) {
+    $line = "{0:HH:mm:ss.fff} {1}" -f (Get-Date), $msg
+    try { Add-Content -Path $LogFile -Value $line -Encoding UTF8 } catch { }
+}
+
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type @'
@@ -24,12 +30,16 @@ public class W {
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr extra);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll", SetLastError = true)]
     public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
-    public const uint KEYEVENTF_UNICODE = 0x0004;
-    public const uint KEYEVENTF_KEYUP = 0x0002;
-    public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-    public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+    public const uint SWP_NOMOVE = 0x0002;
+    public const uint SWP_NOSIZE = 0x0001;
+    public const uint SWP_SHOWWINDOW = 0x0040;
 
     public static void TypeUnicode(string s) {
         foreach (char c in s) {
@@ -52,8 +62,26 @@ public class W {
         arr[0] = down; arr[1] = up;
         SendInput(2, arr, Marshal.SizeOf(typeof(INPUT)));
     }
+    public const uint KEYEVENTF_UNICODE = 0x0004;
+    public const uint KEYEVENTF_KEYUP = 0x0002;
 }
 '@
+Log-Step "START hwnd=$TargetHwnd textLen=$($Text.Length)"
+
+function Find-ById($parent, [string]$autoId, [int]$retries = 5, [int]$delayMs = 700) {
+    for ($i = 0; $i -lt $retries; $i++) {
+        try {
+            $el = $parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, $autoId)))
+            if ($el) { return $el }
+        } catch {
+            Log-Step "find $autoId error: $($_.Exception.Message)"
+        }
+        Start-Sleep -Milliseconds $delayMs
+    }
+    return $null
+}
 
 function Click-Point([double]$x, [double]$y) {
     [W]::SetCursorPos([int]$x, [int]$y) | Out-Null
@@ -66,65 +94,75 @@ function Click-Point([double]$x, [double]$y) {
 
 $e = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$TargetHwnd)
 if (-not $e) { throw 'window not accessible' }
-
-# если приложение не запущено вообще (hwnd недоступен поверх): пользователь сначала запускает из install.bat / вручную;
-# допускаем только сценарий с запущенным приложением.
+Log-Step 'from-handle ok'
 
 $h = [IntPtr]$TargetHwnd
-if ([W]::IsIconic($h)) { [W]::ShowWindow($h, 9) | Out-Null }
-[W]::SetForegroundWindow($h) | Out-Null
-Start-Sleep -Milliseconds 700
+$raised = $false
+try {
+    # поднять окно поверх всех: иначе клики попадут в перекрывающий браузер,
+    # а SetForegroundWindow из фонового процесса Windows блокирует
+    if ([W]::IsIconic($h)) { [W]::ShowWindow($h, 9) | Out-Null }
+    [W]::SetWindowPos($h, [W]::HWND_TOPMOST, 0, 0, 0, 0,
+        [W]::SWP_NOMOVE -bor [W]::SWP_NOSIZE -bor [W]::SWP_SHOWWINDOW) | Out-Null
+    $raised = $true
+    [W]::BringWindowToTop($h) | Out-Null
+    for ($i = 0; $i -lt 4; $i++) {
+        [W]::SetForegroundWindow($h) | Out-Null
+        Start-Sleep -Milliseconds 350
+        $fg = [W]::GetForegroundWindow()
+        Log-Step ("fg=" + $fg.ToInt64() + " target=" + $h.ToInt64())
+        if ($fg -eq $h) { break }
+    }
+    Start-Sleep -Milliseconds 300
 
-if ($TypeOnly) {
-    # просто ввести текст в уже сфокусированный редактор
-    [W]::TypeUnicode($Text)
-    exit 0
+    # если открыт редактор — назад к списку
+    $back = Find-ById $e 'BackButton' 2 500
+    if ($back) {
+        try { ($back.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() | Out-Null } catch { }
+        Log-Step 'back-to-list invoked'
+        Start-Sleep -Milliseconds 1200
+    }
+
+    $create = Find-ById $e 'CreateNoteButton' 6 800
+    if (-not $create) { Log-Step 'FAIL create button not found'; throw 'CreateNoteButton not found' }
+    Log-Step 'create-button found'
+    $cr = $create.Current.BoundingRectangle
+    Log-Step ("click-create at " + [int]$cr.X + "," + [int]$cr.Y)
+    Click-Point ($cr.X + $cr.Width/2) ($cr.Y + $cr.Height/2)
+    Start-Sleep -Milliseconds 1200
+
+    $addPage = Find-ById $e 'AddPageButton' 8 700
+    if (-not $addPage) { Log-Step 'FAIL editor not opened'; throw 'editor did not open (AddPageButton time-out)' }
+    Log-Step 'addpage found'
+
+    $composer = Find-ById $e 'SpenComposerViewScrollViewer' 6 700
+    if (-not $composer) { Log-Step 'FAIL composer not found'; throw 'composer canvas not found' }
+    Log-Step 'composer found'
+    $pr = $composer.Current.BoundingRectangle
+    Click-Point ($pr.X + $pr.Width/2) ($pr.Y + $pr.Height/2 + [Math]::Min(60, $pr.Height*0.08))
+
+    Log-Step 'typing start'
+    foreach ($chunk in ($Text -split "`n")) {
+        [W]::TypeUnicode($chunk)
+        [W]::PressEnter()
+        Start-Sleep -Milliseconds 80
+    }
+    Log-Step 'typing done'
+    Start-Sleep -Milliseconds 1200
+
+    $back2 = Find-ById $e 'BackButton' 5 600
+    if ($back2) {
+        try { ($back2.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() | Out-Null } catch { }
+        Log-Step 'back invoked'
+        Start-Sleep -Milliseconds 900
+    }
+    Log-Step 'done'
+    Write-Output 'OK'
 }
-
-# если открыт редактор — назад к списку
-$back = $e.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-    (New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'BackButton')))
-if ($back) {
-    try { ($back.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() | Out-Null } catch { }
-    Start-Sleep -Milliseconds 1100
+finally {
+    if ($raised) {
+        [W]::SetWindowPos($h, [W]::HWND_NOTOPMOST, 0, 0, 0, 0,
+            [W]::SWP_NOMOVE -bor [W]::SWP_NOSIZE) | Out-Null
+        Log-Step 'topmost-restored'
+    }
 }
-
-$create = $e.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-    (New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'CreateNoteButton')))
-if (-not $create) { throw 'CreateNoteButton not found' }
-$cr = $create.Current.BoundingRectangle
-Click-Point ($cr.X + $cr.Width/2) ($cr.Y + $cr.Height/2)
-Start-Sleep -Milliseconds 1800
-
-$addPage = $e.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-    (New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'AddPageButton')))
-if (-not $addPage) { throw 'editor did not open' }
-
-$composer = $e.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-    (New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'SpenComposerViewScrollViewer')))
-if (-not $composer) { throw 'composer canvas not found' }
-$pr = $composer.Current.BoundingRectangle
-Click-Point ($pr.X + $pr.Width/2) ($pr.Y + $pr.Height/2 + [Math]::Min(60, $pr.Height*0.08))
-Start-Sleep -Milliseconds 400
-
-foreach ($chunk in ($Text -split "`n")) {
-    [W]::TypeUnicode($chunk)
-    [W]::PressEnter()
-    Start-Sleep -Milliseconds 80
-}
-Start-Sleep -Milliseconds 1500
-
-# возврат к списку — сразу триггерит сохранение и не оставляет открытый редактор
-$back2 = $e.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-    (New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'BackButton')))
-if ($back2) {
-    try { ($back2.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() | Out-Null } catch { }
-    Start-Sleep -Milliseconds 900
-}
-
-Write-Output 'OK'

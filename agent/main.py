@@ -156,6 +156,16 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        try:
+            self._do_get()
+        except Exception as e:
+            logging.exception("UNEXPECTED in GET wrapper")
+            try:
+                self._json(500, {"error": "internal (see agent.log)"})
+            except Exception:
+                pass
+
+    def _do_get(self):
         if not self._authorized():
             self._json(401, {"error": "unauthorized"})
             return
@@ -232,6 +242,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json(500, {"error": str(e)})
 
     def do_POST(self):
+        try:
+            self._do_post()
+        except Exception as e:
+            logging.exception("UNEXPECTED in POST wrapper")
+            try:
+                self._json(500, {"error": "internal (see agent.log)"})
+            except Exception:
+                pass
+
+    def _do_post(self):
         if not self._authorized():
             self._json(401, {"error": "unauthorized"})
             return
