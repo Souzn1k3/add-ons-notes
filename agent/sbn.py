@@ -120,6 +120,10 @@ class SbnIndex:
                 "parent": r["ParentUUID"] or "",
                 "is_deleted": bool(r["IsDeleted"]),
             }
+        # виртуальные корни не должны попадать в UI как "папки"
+        for special in ("uncategorized:///", "trash:///", "old:///", "UUID_UNCATEGORIZED"):
+            if special in out:
+                out[special]["special"] = True
         return out
 
     def _load_notes(self, con) -> list:
@@ -157,11 +161,15 @@ class SbnIndex:
                 title = text.split("\n", 1)[0][:80]
             folder_uuid = r["CategoryUUID"] or ""
             folder = self.folders.get(folder_uuid)
+            if folder and folder.get("special"):
+                folder_name = ""  # uncategorized/корзина не показываем как папку
+            else:
+                folder_name = (folder or {}).get("name", "")
             notes.append({
                 "uuid": uuid,
                 "title": title or "Без названия",
-                "folder_uuid": folder_uuid,
-                "folder_name": (folder or {}).get("name", ""),
+                "folder_uuid": folder_uuid if not (folder and folder.get("special")) else "",
+                "folder_name": folder_name,
                 "is_locked": locked,
                 "deleted": deleted,
                 "text_only": bool(r["IsTextOnly"]),
@@ -203,7 +211,9 @@ class SbnIndex:
             res.append(n)
         if limit:
             res = res[:limit]
-        return res
+        # /notes не отправляет полный текст (экономия трафика и кэша);
+        # полный текст доступен только через /note/<uuid>
+        return [{k: v for k, v in n.items() if k != "text"} for n in res]
 
     def get_note(self, uuid: str):
         n = self.by_uuid.get(uuid)

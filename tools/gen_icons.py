@@ -48,7 +48,7 @@ def rounded_rect_mask(size, radius, l, t, w, h):
 def gen_icon(size):
     radius = size * 0.26 if size >= 48 else size * 0.27
     sq = rounded_sq_mask(size, radius)
-    m = size * 0.115
+    m = size * 0.175
     sheet = rounded_rect_mask(size, radius * 0.55, m, m, size - 2 * m, size - 2 * m)
     # линии "текста" внутри листа
     lines = [[0.0] * size for _ in range(size)]
@@ -69,17 +69,16 @@ def gen_icon(size):
         for x in range(size):
             t = y / (size - 1)
             bg = tuple(TOP[i] + (BOT[i] - TOP[i]) * t for i in range(3))
-            a = sq[y][x]
-            s = sheet[y][x] if sheet[y][x] > 0 else 0
+            s = sheet[y][x]
             g = lines[y][x]
             rr, gg, bb = bg
-            alpha = 0
+            alpha = 255 * sq[y][x]
             if s > 0:
-                rr, gg, bb = WHITE
-                alpha = 255 * s
+                rr = rr + (WHITE[0] - rr) * s
+                gg = gg + (WHITE[1] - gg) * s
+                bb = bb + (WHITE[2] - bb) * s
             if s > 0.7 and g > 0.5:
                 rr, gg, bb = TOP
-                alpha = 255 * s
             row += bytes([_clamp(rr), _clamp(gg), _clamp(bb), _clamp(alpha)])
         px += row
     return _png(size, px)

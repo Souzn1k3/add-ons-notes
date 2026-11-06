@@ -46,11 +46,17 @@ def save_writeback_flag(on: bool):
 
 def log_setup():
     d = state_dir()
+    log_path = os.path.join(d, "agent.log")
+    try:
+        if os.path.isfile(log_path) and os.path.getsize(log_path) > 5 * 1024 * 1024:
+            os.replace(log_path, log_path + ".1")
+    except OSError:
+        pass
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
         handlers=[
-            logging.FileHandler(os.path.join(d, "agent.log"), encoding="utf-8"),
+            logging.FileHandler(log_path, encoding="utf-8"),
             logging.StreamHandler(),
         ],
     )
@@ -82,8 +88,16 @@ def notes_app_running() -> bool:
         return False
 
 
+def _allowed_origin(origin: str) -> bool:
+    if not origin:
+        return True  # не-браузерные клиенты (curl и т.п.) — их защищает токен
+    return (origin.startswith("chrome-extension://") or
+            origin.startswith("moz-extension://") or
+            origin.startswith("extension://"))
+
+
 def cors(origin, handler):
-    if origin:
+    if origin and _allowed_origin(origin):
         handler.send_header("Access-Control-Allow-Origin", origin)
     handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     handler.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
@@ -168,11 +182,15 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 return
             if path == "/notes":
+                try:
+                    limit = int((qs.get("limit") or ["200"])[0])
+                except (TypeError, ValueError):
+                    limit = 200
                 self._json(200, {
                     "notes": idx.list_notes(
                         query=(qs.get("query") or [""])[0],
                         folder=(qs.get("folder") or [""])[0],
-                        limit=int((qs.get("limit") or ["200"])[0]),
+                        limit=limit,
                         include_trash=False,
                     )})
                 return
@@ -234,7 +252,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         # writeback импортируется лениво, чтобы чисто-читательский путь не зависел от него
         from writeback import create_note
-        self._json(200, create_note(body))
+        self._json(200, create_note(body, state["index"]))
 
     def _settings_endpoints(self, path_parsed):
         """GET/POST /settings — флаг write-back, синхронизируемый с расширением."""

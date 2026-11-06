@@ -13,7 +13,6 @@
     - текст до 8000 символов (ограничение по скорости посимвольного ввода).
 """
 
-import json
 import logging
 import os
 import subprocess
@@ -24,11 +23,6 @@ _PSH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "create-note.ps1
 _LOCK = threading.Lock()
 
 MAX_TEXT = 8000
-
-
-def _powershell(script: str, *args) -> subprocess.CompletedProcess:
-    argv = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script]
-    return subprocess.run(argv, capture_output=True, text=True, timeout=60)
 
 
 def _get_corewindow_hwnd() -> int:
@@ -67,9 +61,10 @@ def _launch_app() -> None:
         "if ($app) { Start-Process ('shell:appsFolder\\' + $app.AppID); Write-Output 'LAUNCHED' } "
         "else { Write-Output 'NOTFOUND' }"
     )
-    r = _powershell(script)
+    argv = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script]
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=60)
     if "NOTFOUND" in (r.stdout or ""):
-        raise RuntimeError("Samsung Notes не найден в системе")
+        raise RuntimeError("приложение Samsung Notes не найдено в системе")
 
 
 def _wait_window(timeout=45) -> int:
@@ -87,7 +82,7 @@ def detect_folder_wish(index) -> str | None:
     return None
 
 
-def create_note(body: dict) -> dict:
+def create_note(body: dict, index=None) -> dict:
     title = (body.get("title") or "").strip()
     text = (body.get("body") or "").rstrip()
     if not title and not text:
@@ -96,6 +91,8 @@ def create_note(body: dict) -> dict:
     payload = (title + "\n" + text + "\n").strip() if title else text.strip()
     if len(payload) > MAX_TEXT:
         return {"ok": False, "error": f"слишком длинный текст (>{MAX_TEXT})"}
+
+    known_uuids = set(index.by_uuid.keys()) if (index and hasattr(index, "by_uuid")) else None
 
     acquired = _LOCK.acquire(timeout=2.0)
     if not acquired:
@@ -111,7 +108,7 @@ def create_note(body: dict) -> dict:
             "-TargetHwnd", str(hwnd),
             "-Text", payload,
         ]
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=180,
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=300,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         out = (r.stdout or "").strip()
         if r.returncode != 0 or "OK" not in out:
@@ -119,6 +116,21 @@ def create_note(body: dict) -> dict:
             logging.error("create failed: %s", err)
             return {"ok": False, "error": err}
         time.sleep(2.5)
-        return {"ok": True}
+        # пробуем опознать новую заметку в свежем индексе
+        new_uuid = None
+        if index is not None and known_uuids is not None:
+            try:
+                index.refresh(force=True)
+                first_line = payload.split("\n", 1)[0].strip().lower()
+                now_ms = int(time.time() * 1000)
+                for uuid in set(index.by_uuid.keys()) - known_uuids:
+                    n = index.by_uuid[uuid]
+                    if n["modified_at"] >= now_ms - 120_000:
+                        new_uuid = uuid
+                        if first_line and n["title"].lower().startswith(first_line[:60]):
+                            break
+            except Exception:
+                logging.exception("post-create reindex failed")
+        return {"ok": True, "uuid": new_uuid}
     finally:
         _LOCK.release()

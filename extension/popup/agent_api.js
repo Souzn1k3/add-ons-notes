@@ -55,7 +55,7 @@ export function getNote({ port, token, uuid }) {
 export function createNote({ port, token, title, body, bookmark }) {
   return request(port, token, "/notes/create", {
     method: "POST",
-    timeoutMs: 60000,
+    timeoutMs: 300000, // посимвольный ввод длинных заметок занимает до минуты
     body: { title, body, bookmark },
   });
 }

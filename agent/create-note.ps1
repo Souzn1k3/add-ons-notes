@@ -106,10 +106,9 @@ if (-not $addPage) { throw 'editor did not open' }
 $composer = $e.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
     (New-Object System.Windows.Automation.PropertyCondition(
         [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'SpenComposerViewScrollViewer')))
-if ($composer) {
-    $pr = $composer.Current.BoundingRectangle
-    Click-Point ($pr.X + $pr.Width/2) ($pr.Y + $pr.Height/2 + [Math]::Min(60, $pr.Height*0.08))
-}
+if (-not $composer) { throw 'composer canvas not found' }
+$pr = $composer.Current.BoundingRectangle
+Click-Point ($pr.X + $pr.Width/2) ($pr.Y + $pr.Height/2 + [Math]::Min(60, $pr.Height*0.08))
 Start-Sleep -Milliseconds 400
 
 foreach ($chunk in ($Text -split "`n")) {
@@ -117,6 +116,15 @@ foreach ($chunk in ($Text -split "`n")) {
     [W]::PressEnter()
     Start-Sleep -Milliseconds 80
 }
-Start-Sleep -Milliseconds 1200
+Start-Sleep -Milliseconds 1500
+
+# возврат к списку — сразу триггерит сохранение и не оставляет открытый редактор
+$back2 = $e.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+    (New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'BackButton')))
+if ($back2) {
+    try { ($back2.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)).Invoke() | Out-Null } catch { }
+    Start-Sleep -Milliseconds 900
+}
 
 Write-Output 'OK'
