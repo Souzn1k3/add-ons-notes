@@ -157,7 +157,9 @@ function renderReader(note) {
       const input = document.createElement("input");
       input.type = "checkbox";
       input.checked = ln.checked;
-      input.addEventListener("change", () => onToggleCheck(note.id, ln.line));
+      input.addEventListener("change", () => {
+        onToggleCheck(note.id, ln.line, input.checked, label);
+      });
       const span = document.createElement("span");
       span.textContent = ln.text || "";
       label.append(input, span);
@@ -179,13 +181,17 @@ function openReader(id) {
   switchView("view-reader");
 }
 
-async function onToggleCheck(id, lineIndex) {
+async function onToggleCheck(id, lineIndex, checked, labelEl) {
   const n = findNote(id);
   if (!n) return;
   n.body = toggleCheckLine(n.body, lineIndex);
   n.updated = Date.now();
   await saveNotes(state.notes);
-  renderReader(n);
+  if (labelEl) labelEl.classList.toggle("done", !!checked);
+  const checks = countChecks(n.body);
+  $("reader-meta").innerHTML =
+    `<span>Изменено: ${fmtDate(n.updated)}</span>` +
+    (checks.total ? `<span>${checks.done} из ${checks.total} выполнено</span>` : "");
 }
 
 /* ---------- редактор ---------- */
@@ -215,7 +221,8 @@ async function flushEditor() {
   state.dirty = false;
   const title = $("edit-title").value;
   const body = $("edit-body").value;
-  if (!title.trim() && !body.trim()) {
+  const isNew = !state.currentId;
+  if (isNew && !title.trim() && !body.trim()) {
     setSaveState("");
     return; // пустой черновик не сохраняем
   }
@@ -225,6 +232,7 @@ async function flushEditor() {
     note = { id: makeId(), title: "", body: "", pinned: false, created: now, updated: now };
     state.notes.push(note);
     state.currentId = note.id;
+    $("editor-heading").textContent = "Заметка";
   }
   note.title = title;
   note.body = body;
