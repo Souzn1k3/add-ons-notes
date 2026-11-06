@@ -1,0 +1,48 @@
+/* Дизайн-токены в стиле One UI (без ассетов и товарных знаков Samsung).
+   Светлая и тёмная темы переключаются автоматически по prefers-color-scheme. */
+
+:root {
+  --accent: #1b71e5;
+  --accent-press: #1259c3;
+  --accent-soft: rgba(27, 113, 229, 0.10);
+
+  --bg: #f4f6f8;
+  --card: #ffffff;
+  --card-press: #f2f4f7;
+  --text-main: #1b1b1b;
+  --text-sec: #7d8b94;
+  --text-hint: #a4b0b8;
+  --sep: rgba(27, 27, 27, 0.06);
+  --chip: #ffffff;
+  --chip-text: #4a5860;
+
+  --ok: #2e8b57;
+  --warn: #d8a208;
+  --err: #d83933;
+
+  --r-card: 22px;
+  --r-input: 20px;
+  --r-chip: 32px;
+
+  --shadow-card: 0 1px 3px rgba(23, 33, 63, 0.06);
+  --shadow-fab: 0 6px 16px rgba(27, 113, 229, 0.35);
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d0f11;
+    --card: #1b1e21;
+    --card-press: #24282b;
+    --text-main: #eff2f4;
+    --text-sec: #8a959c;
+    --text-hint: #5d686e;
+    --sep: rgba(240, 242, 244, 0.07);
+    --chip: #1b1e21;
+    --chip-text: #aab4ba;
+    --accent-soft: rgba(79, 141, 245, 0.16);
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-fab: 0 6px 16px rgba(0, 0, 0, 0.6);
+  }
+}
