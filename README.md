@@ -17,6 +17,15 @@
 
 ## Установка
 
+📦 **Скачать:** [Releases](https://github.com/Souzn1k3/add-ons-notes/releases)
+— архив `add-ons-notes-v2.0.0.zip`, распаковать и загрузить папку
+(где `manifest.json`) как распакованное расширение.
+
+Подробная инструкция для Samsung Internet / Chrome / Edge:
+**[INSTALL.md](INSTALL.md)**.
+
+Кратко:
+
 1. Открой страницу расширений браузера:
    - Chrome/Edge/Brave: `chrome://extensions` → включи «Режим разработчика» →
      «Загрузить распакованное» → папка `extension/`;
