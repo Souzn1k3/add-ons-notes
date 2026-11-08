@@ -3,6 +3,7 @@
 import {
   loadNotes, saveNotes, loadSettings, saveSettings, cleanupLegacy,
   seedWelcomeIfNeeded, buildExport, validateImport, mergeNotes, makeId,
+  saveDraft, loadDraft, clearDraft,
   DEFAULT_SETTINGS,
 } from "./store.js";
 import {
@@ -21,8 +22,7 @@ const state = {
   editorReturn: "home",
   dirty: false,
   saveTimer: null,
-  deleteArmedAt: 0,
-  clearArmedAt: 0,
+  armed: { kind: "", at: 0 },
 };
 
 /* ---------- helpers ---------- */
@@ -212,19 +212,28 @@ function openEditor(id) {
 function scheduleSave() {
   state.dirty = true;
   setSaveState("Сохранение…");
+  saveDraftNow();
   clearTimeout(state.saveTimer);
   state.saveTimer = setTimeout(flushEditor, 350);
 }
 
+function saveDraftNow() {
+  if (state.view !== "view-editor") return;
+  const title = $("edit-title").value;
+  const body = $("edit-body").value;
+  if (!title.trim() && !body.trim() && !state.currentId) return;
+  saveDraft({ id: state.currentId || null, title, body, ts: Date.now() });
+}
+
 async function flushEditor() {
-  if (state.view !== "view-editor" || !state.dirty) return;
+  if (state.view !== "view-editor" || !state.dirty) return true;
   state.dirty = false;
   const title = $("edit-title").value;
   const body = $("edit-body").value;
   const isNew = !state.currentId;
   if (isNew && !title.trim() && !body.trim()) {
     setSaveState("");
-    return; // пустой черновик не сохраняем
+    return true; // пустой черновик не сохраняем
   }
   let note = state.currentId ? findNote(state.currentId) : null;
   const now = Date.now();
@@ -237,13 +246,23 @@ async function flushEditor() {
   note.title = title;
   note.body = body;
   note.updated = now;
-  await saveNotes(state.notes);
-  setSaveState("Сохранено");
+  try {
+    await saveNotes(state.notes);
+    await clearDraft();
+    setSaveState("Сохранено");
+    return true;
+  } catch (e) {
+    state.dirty = true; // следующая попытка при вводе/выходе
+    setSaveState("⚠ Не сохранено");
+    toast("Не удалось сохранить: " + (e && e.message ? e.message : "ошибка хранилища"));
+    return false;
+  }
 }
 
 async function leaveEditor() {
   clearTimeout(state.saveTimer);
-  await flushEditor();
+  const ok = await flushEditor();
+  if (!ok) return; // не выпускаем с несохранёнными данными
   const note = state.currentId ? findNote(state.currentId) : null;
   if (!note) {
     switchView("view-home");
@@ -264,7 +283,6 @@ function insertChecklist() {
   const ta = $("edit-body");
   const pos = ta.selectionStart || 0;
   const before = ta.value.slice(0, pos);
-  const after = ta.value.slice(ta.selectionEnd || pos);
   const lineStart = before.lastIndexOf("\n") + 1;
   const prefix = before.slice(lineStart);
   const already = /^[-*]\s+\[[ xX]\]/.test(prefix);
@@ -289,16 +307,16 @@ function insertChecklist() {
 
 /* ---------- удаление ---------- */
 
-function armDelete(button, action) {
+function armDelete(button, action, kind, label) {
   const now = Date.now();
-  if (now - state.deleteArmedAt < 3000) {
-    state.deleteArmedAt = 0;
+  if (state.armed.kind === kind && now - state.armed.at < 3000) {
+    state.armed = { kind: "", at: 0 };
     button.classList.remove("armed");
     action();
     return;
   }
-  state.deleteArmedAt = now;
-  toast("Нажмите «Удалить» ещё раз для подтверждения");
+  state.armed = { kind, at: now };
+  toast(label || "Нажмите кнопку ещё раз для подтверждения");
   button.classList.add("armed");
   setTimeout(() => button.classList.remove("armed"), 3000);
 }
@@ -353,6 +371,10 @@ function downloadExport() {
 }
 
 async function importFile(file) {
+  if (file.size > 25 * 1024 * 1024) {
+    toast("Файл слишком большой — лимит импорта 25 МБ");
+    return;
+  }
   try {
     const text = await file.text();
     const payload = JSON.parse(text);
@@ -368,6 +390,50 @@ async function importFile(file) {
   }
 }
 
+/* ---------- восстановление черновика ---------- */
+
+async function recoverDraft() {
+  const draft = await loadDraft();
+  if (!draft) return;
+  const hasText = String(draft.title || "").trim() || String(draft.body || "").trim();
+  if (!hasText) {
+    await clearDraft();
+    return;
+  }
+  const now = Date.now();
+  try {
+    if (draft.id) {
+      const n = findNote(draft.id);
+      if (n) {
+        if ((draft.ts || 0) > (n.updated || 0)) {
+          n.title = draft.title || "";
+          n.body = draft.body || "";
+          n.updated = now;
+          await saveNotes(state.notes);
+          toast("Восстановлены несохранённые изменения");
+        }
+      } else {
+        state.notes.push({
+          id: draft.id, title: draft.title || "", body: draft.body || "",
+          pinned: false, created: now, updated: now,
+        });
+        await saveNotes(state.notes);
+        toast("Восстановлена несохранённая заметка");
+      }
+    } else {
+      state.notes.push({
+        id: makeId(), title: draft.title || "", body: draft.body || "",
+        pinned: false, created: now, updated: now,
+      });
+      await saveNotes(state.notes);
+      toast("Восстановлена несохранённая заметка");
+    }
+    await clearDraft();
+  } catch (_) {
+    /* сохранить не удалось — черновик оставляем до следующего запуска */
+  }
+}
+
 /* ---------- инициализация ---------- */
 
 async function init() {
@@ -376,6 +442,7 @@ async function init() {
   applyAppearance();
   await seedWelcomeIfNeeded();
   state.notes = await loadNotes();
+  await recoverDraft();
   renderHome();
   switchView("view-home");
 
@@ -399,7 +466,7 @@ async function init() {
   $("btn-read-pin").addEventListener("click", () => togglePin(state.currentId));
   $("btn-read-edit").addEventListener("click", () => openEditor(state.currentId));
   $("btn-read-delete").addEventListener("click", (ev) => {
-    armDelete(ev.currentTarget, deleteCurrentNote);
+    armDelete(ev.currentTarget, deleteCurrentNote, "note", "Нажмите «Удалить» ещё раз для подтверждения");
   });
 
   $("btn-edit-back").addEventListener("click", leaveEditor);
@@ -435,11 +502,17 @@ async function init() {
   $("btn-clear").addEventListener("click", (ev) => {
     armDelete(ev.currentTarget, async () => {
       state.notes = [];
-      await saveNotes(state.notes);
+      try {
+        await saveNotes(state.notes);
+        await clearDraft();
+      } catch (e) {
+        toast("Не удалось очистить: " + (e && e.message ? e.message : "ошибка хранилища"));
+        return;
+      }
       renderHome();
       renderSettingsUi();
       toast("Все заметки удалены");
-    });
+    }, "clear", "Нажмите «Удалить все заметки» ещё раз для подтверждения");
   });
 
   document.addEventListener("keydown", (ev) => {

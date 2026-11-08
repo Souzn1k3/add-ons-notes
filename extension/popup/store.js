@@ -3,6 +3,7 @@
 const NOTES_KEY = "nb_notes_v1";
 const SETTINGS_KEY = "nb_settings_v1";
 const INIT_KEY = "nb_init_v2";
+const DRAFT_KEY = "nb_draft_v1";
 const LEGACY_KEYS = ["cached_notes", "cached_at", "port", "token", "writeback"];
 
 export const DEFAULT_SETTINGS = { theme: "auto", accent: "blue" };
@@ -12,14 +13,15 @@ export function makeId() {
   return "n-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
 }
 
-let saveChain = Promise.resolve();
+/* Очередь записей: цепочка не «застревает» после ошибки,
+   но вызывающий получает настоящий промис с ошибкой (без проглатывания). */
+let chainTail = Promise.resolve();
 
 export function saveNotes(notes) {
   const snapshot = notes.map((n) => ({ ...n }));
-  saveChain = saveChain
-    .then(() => chrome.storage.local.set({ [NOTES_KEY]: snapshot }))
-    .catch(() => {});
-  return saveChain;
+  const op = chainTail.then(() => chrome.storage.local.set({ [NOTES_KEY]: snapshot }));
+  chainTail = op.catch(() => {});
+  return op;
 }
 
 export async function loadNotes() {
@@ -38,6 +40,25 @@ export async function saveSettings(settings) {
 
 export async function cleanupLegacy() {
   try { await chrome.storage.local.remove(LEGACY_KEYS); } catch (_) { /* ignore */ }
+}
+
+/* ---------- черновик редактора (страховка от закрытия попапа) ---------- */
+
+export function saveDraft(draft) {
+  return chrome.storage.local.set({ [DRAFT_KEY]: draft }).catch(() => {});
+}
+
+export async function loadDraft() {
+  try {
+    const o = await chrome.storage.local.get({ [DRAFT_KEY]: null });
+    return o[DRAFT_KEY] || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+export async function clearDraft() {
+  try { await chrome.storage.local.remove(DRAFT_KEY); } catch (_) { /* ignore */ }
 }
 
 export async function seedWelcomeIfNeeded() {

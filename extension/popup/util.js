@@ -63,9 +63,11 @@ export function parseBody(body) {
 
 export function toggleCheckLine(body, lineIndex) {
   const lines = String(body || "").split("\n");
-  const m = CHECK_RE.exec(lines[lineIndex] || "");
+  const line = lines[lineIndex] || "";
+  const m = CHECK_RE.exec(line);
   if (!m) return body;
-  lines[lineIndex] = `${m[1]}- [${m[2].trim() ? " " : "x"}]${m[3] ? " " + m[3] : ""}`;
+  const bullet = (line.match(/^[ \t]*([-*])/) || [null, "-"])[1];
+  lines[lineIndex] = `${m[1]}${bullet} [${m[2].trim() ? " " : "x"}]${m[3] ? " " + m[3] : ""}`;
   return lines.join("\n");
 }
 
