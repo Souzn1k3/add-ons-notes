@@ -8,7 +8,7 @@ import {
 } from "./store.js";
 import {
   esc, deriveTitle, previewText, countChecks, parseBody, toggleCheckLine,
-  fmtDate, sortNotes, bytesOf, fmtBytes,
+  fmtDate, sortNotes, bytesOf, fmtBytes, sanitizeUrl, tokenizeLine,
 } from "./util.js";
 
 const $ = (id) => document.getElementById(id);
@@ -23,6 +23,7 @@ const state = {
   dirty: false,
   saveTimer: null,
   armed: { kind: "", at: 0 },
+  linkRange: null,
 };
 
 /* ---------- helpers ---------- */
@@ -53,6 +54,83 @@ function switchView(name) {
   state.view = name;
   for (const v of ["view-home", "view-reader", "view-editor"]) {
     $(v).classList.toggle("hidden", v !== name);
+  }
+}
+
+/* ---------- ссылки ---------- */
+
+const COPY_SVG = '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+
+function openExternal(rawUrl) {
+  const url = sanitizeUrl(rawUrl);
+  if (!url) return;
+  try {
+    if (chrome && chrome.tabs && chrome.tabs.create) {
+      chrome.tabs.create({ url });
+      window.close();
+      return;
+    }
+  } catch (_) { /* падаем в window.open */ }
+  try {
+    window.open(url, "_blank", "noopener");
+  } catch (_) { /* ignore */ }
+}
+
+async function copyLink(rawUrl) {
+  const url = sanitizeUrl(rawUrl);
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+    toast("Ссылка скопирована");
+    return;
+  } catch (_) { /* fallback ниже */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = url;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+    toast("Ссылка скопирована");
+  } catch (_) {
+    toast("Не удалось скопировать");
+  }
+}
+
+function appendRichText(container, text) {
+  for (const tk of tokenizeLine(text)) {
+    if (tk.type !== "link") {
+      container.appendChild(document.createTextNode(tk.text));
+      continue;
+    }
+    const wrap = document.createElement("span");
+    wrap.className = "link-wrap";
+    const a = document.createElement("a");
+    a.className = "link";
+    a.href = tk.href;
+    a.textContent = tk.text;
+    a.title = tk.href;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      openExternal(tk.href);
+    });
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "copy-btn";
+    btn.title = "Копировать ссылку";
+    btn.setAttribute("aria-label", "Копировать ссылку");
+    btn.innerHTML = COPY_SVG;
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      copyLink(tk.href);
+    });
+    wrap.append(a, btn);
+    container.appendChild(wrap);
   }
 }
 
@@ -161,13 +239,13 @@ function renderReader(note) {
         onToggleCheck(note.id, ln.line, input.checked, label);
       });
       const span = document.createElement("span");
-      span.textContent = ln.text || "";
+      appendRichText(span, ln.text || "");
       label.append(input, span);
       body.appendChild(label);
     } else {
       const d = document.createElement("div");
       d.className = "line";
-      d.textContent = ln.text;
+      appendRichText(d, ln.text);
       body.appendChild(d);
     }
   }
@@ -302,6 +380,48 @@ function insertChecklist() {
   ta.value = ta.value.slice(0, pos) + insert + ta.value.slice(pos);
   ta.focus();
   ta.selectionStart = ta.selectionEnd = pos + caretShift;
+  scheduleSave();
+}
+
+/* ---------- мини-диалог вставки ссылки ---------- */
+
+function openLinkDialog() {
+  const ta = $("edit-body");
+  state.linkRange = { start: ta.selectionStart || 0, end: ta.selectionEnd || 0 };
+  const selected = ta.value.slice(state.linkRange.start, state.linkRange.end)
+    .replace(/\n/g, " ").trim();
+  $("link-label").value = selected;
+  $("link-url").value = "";
+  $("link-dialog").classList.remove("hidden");
+  setTimeout(() => {
+    ($("link-label").value ? $("link-url") : $("link-label")).focus();
+  }, 50);
+}
+
+function closeLinkDialog() {
+  $("link-dialog").classList.add("hidden");
+  if (state.view === "view-editor") $("edit-body").focus();
+}
+
+function insertLinkFromDialog() {
+  const label = $("link-label").value.trim().replace(/[[\]]/g, "");
+  const url = sanitizeUrl($("link-url").value.trim());
+  if (!url) {
+    toast("Некорректная ссылка: нужен http(s)://, www. или mailto:");
+    $("link-url").focus();
+    return;
+  }
+  const ta = $("edit-body");
+  const range = state.linkRange || { start: ta.selectionStart || 0, end: ta.selectionEnd || 0 };
+  const start = Math.max(0, Math.min(range.start, ta.value.length));
+  const end = Math.max(start, Math.min(range.end, ta.value.length));
+  const inserted = label ? `[${label}](${url})` : url;
+  const needSpace = start > 0 && !/\s/.test(ta.value[start - 1]) && !/^\s/.test(inserted);
+  const actual = needSpace ? " " + inserted : inserted;
+  ta.value = ta.value.slice(0, start) + actual + ta.value.slice(end);
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = start + actual.length;
+  closeLinkDialog();
   scheduleSave();
 }
 
@@ -471,6 +591,18 @@ async function init() {
 
   $("btn-edit-back").addEventListener("click", leaveEditor);
   $("btn-insert-check").addEventListener("click", insertChecklist);
+  $("btn-insert-link").addEventListener("click", openLinkDialog);
+  $("link-insert").addEventListener("click", insertLinkFromDialog);
+  $("link-cancel").addEventListener("click", closeLinkDialog);
+  $("link-dialog").addEventListener("click", (ev) => {
+    if (ev.target === $("link-dialog")) closeLinkDialog();
+  });
+  $("link-url").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      insertLinkFromDialog();
+    }
+  });
   for (const el of [$("edit-title"), $("edit-body")]) {
     el.addEventListener("input", scheduleSave);
   }
@@ -517,7 +649,8 @@ async function init() {
 
   document.addEventListener("keydown", (ev) => {
     if (ev.key !== "Escape") return;
-    if (!$("settings").classList.contains("hidden")) closeSettings();
+    if (!$("link-dialog").classList.contains("hidden")) closeLinkDialog();
+    else if (!$("settings").classList.contains("hidden")) closeSettings();
     else if (state.view === "editor") leaveEditor();
     else if (state.view === "reader") {
       switchView("view-home");

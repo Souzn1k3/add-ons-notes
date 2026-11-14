@@ -1,6 +1,6 @@
 {
   "name": "add-ons-notes",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "private": true,
   "description": "Local notes extension for Chromium (One UI style)",
   "type": "module",

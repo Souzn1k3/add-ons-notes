@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   deriveTitle, previewText, countChecks, parseBody, toggleCheckLine,
-  sortNotes, fmtDate,
+  sortNotes, fmtDate, sanitizeUrl, tokenizeLine, stripMarkdownLinks,
 } from "../extension/popup/util.js";
 import {
   validateImport, mergeNotes, makeId, saveNotes,
@@ -95,6 +95,75 @@ test("sortNotes: pinned first, then newest", () => {
 test("fmtDate: today is HH:MM", () => {
   assert.match(fmtDate(Date.now()), /^\d{2}:\d{2}$/);
   assert.equal(fmtDate(0), "");
+});
+
+/* ---------- ссылки ---------- */
+
+test("sanitizeUrl: allowlist and www normalization", () => {
+  assert.equal(sanitizeUrl("https://ya.ru"), "https://ya.ru");
+  assert.equal(sanitizeUrl("http://ya.ru/a?b=1#c"), "http://ya.ru/a?b=1#c");
+  assert.equal(sanitizeUrl("www.ya.ru"), "https://www.ya.ru");
+  assert.equal(sanitizeUrl("mailto:user@mail.ru"), "mailto:user@mail.ru");
+  assert.equal(sanitizeUrl("javascript:alert(1)"), null);
+  assert.equal(sanitizeUrl("data:text/html,hi"), null);
+  assert.equal(sanitizeUrl("file:///C:/secret"), null);
+  assert.equal(sanitizeUrl("chrome://settings"), null);
+  assert.equal(sanitizeUrl("tel:+79990000000"), null);
+  assert.equal(sanitizeUrl("https://"), null);
+  assert.equal(sanitizeUrl(""), null);
+  assert.equal(sanitizeUrl(null), null);
+});
+
+test("tokenizeLine: plain text and bare urls", () => {
+  assert.deepEqual(tokenizeLine("просто текст"), [{ type: "text", text: "просто текст" }]);
+
+  const t = tokenizeLine("см. https://ya.ru.");
+  assert.deepEqual(t[0], { type: "text", text: "см. " });
+  assert.deepEqual(t[1], { type: "link", text: "https://ya.ru", href: "https://ya.ru" });
+  assert.deepEqual(t[2], { type: "text", text: "." });
+
+  const w = tokenizeLine("сайт www.ya.ru — там");
+  const link = w.find((x) => x.type === "link");
+  assert.equal(link.href, "https://www.ya.ru");
+});
+
+test("tokenizeLine: balanced parentheses and multiple links", () => {
+  const t = tokenizeLine("(https://ya.ru/a(b)) и https://example.com/x");
+  const links = t.filter((x) => x.type === "link");
+  assert.equal(links.length, 2);
+  assert.equal(links[0].href, "https://ya.ru/a(b)");
+  assert.equal(links[1].href, "https://example.com/x");
+});
+
+test("tokenizeLine: markdown links, mailto, blocked schemes", () => {
+  const md = tokenizeLine("[Яндекс](https://ya.ru)");
+  assert.deepEqual(md, [{ type: "link", text: "Яндекс", href: "https://ya.ru" }]);
+
+  const mail = tokenizeLine("[Почта](mailto:a@b.c)");
+  assert.deepEqual(mail, [{ type: "link", text: "Почта", href: "mailto:a@b.c" }]);
+
+  const bad = tokenizeLine("[x](javascript:alert(1))");
+  assert.equal(bad.length, 1);
+  assert.equal(bad[0].type, "text");
+  assert.equal(bad[0].text, "[x](javascript:alert(1))");
+
+  const bareJs = tokenizeLine("javascript:alert(1)");
+  assert.deepEqual(bareJs, [{ type: "text", text: "javascript:alert(1)" }]);
+});
+
+test("tokenizeLine: link inside checklist text, empty string", () => {
+  assert.deepEqual(tokenizeLine(""), []);
+  const t = tokenizeLine("- ссылка https://ya.ru");
+  const link = t.find((x) => x.type === "link");
+  assert.equal(link.href, "https://ya.ru");
+});
+
+test("stripMarkdownLinks cleans title and preview", () => {
+  assert.equal(stripMarkdownLinks("[Я](https://ya.ru) и [П](mailto:a@b.c)"), "Я и П");
+  assert.equal(deriveTitle({ title: "", body: "[Сайт](https://ya.ru) — закладка" }), "Сайт — закладка");
+  const pv = previewText({ title: "", body: "Заголовок\n[Сайт](https://ya.ru)" });
+  assert.ok(pv.includes("Сайт"));
+  assert.ok(!pv.includes("https://ya.ru"));
 });
 
 /* ---------- store: import/merge ---------- */

@@ -64,10 +64,30 @@
       <input id="edit-title" type="text" placeholder="Заголовок" autocomplete="off">
       <div class="editor-toolbar">
         <button id="btn-insert-check" class="tool-btn" type="button">☑ Чек-лист</button>
+        <button id="btn-insert-link" class="tool-btn" type="button">🔗 Ссылка</button>
       </div>
       <textarea id="edit-body" placeholder="Текст заметки…&#10;Чек-лист: начни строку с «- [ ]»"></textarea>
     </div>
   </section>
+
+  <!-- ======== ВСТАВКА ССЫЛКИ ======== -->
+  <div id="link-dialog" class="modal-mask center hidden">
+    <div class="dialog">
+      <h2>Ссылка</h2>
+      <div class="field">
+        <label for="link-label">Текст ссылки</label>
+        <input id="link-label" type="text" placeholder="Например, GitHub" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="link-url">URL</label>
+        <input id="link-url" type="text" placeholder="https://… или mailto:…" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="dialog-actions">
+        <button id="link-cancel" class="btn btn-secondary" type="button">Отмена</button>
+        <button id="link-insert" class="btn btn-primary" type="button">Вставить</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ======== НАСТРОЙКИ ======== -->
   <div id="settings" class="modal-mask hidden">
@@ -104,7 +124,7 @@
       </div>
 
       <button id="btn-settings-close" class="btn btn-primary">Готово</button>
-      <div class="version">Заметки 2.0.1 · локально в браузере</div>
+      <div class="version">Заметки 2.1.0 · локально в браузере</div>
     </div>
   </div>
 

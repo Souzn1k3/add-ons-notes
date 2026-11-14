@@ -121,6 +121,46 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 .reader-body .chk span { white-space: pre-wrap; }
 .reader-body .chk.done span { color: var(--text-hint); text-decoration: line-through; }
 
+/* ---------- ссылки ---------- */
+.link {
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+  border-bottom: 1px solid transparent;
+}
+.link:hover, .link:focus-visible {
+  border-bottom-color: var(--accent);
+  outline: none;
+}
+.link-wrap { display: inline; }
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 3px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-hint);
+  cursor: pointer;
+  opacity: 0;
+  vertical-align: -3px;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+.link-wrap:hover .copy-btn,
+.copy-btn:focus-visible { opacity: 1; }
+.copy-btn:hover { color: var(--accent); background: var(--accent-soft); }
+.copy-btn svg {
+  width: 13px; height: 13px;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+@media (hover: none) {
+  .copy-btn { opacity: 0.55; }
+}
+
 /* ---------- редактор ---------- */
 .save-state { font-size: 12px; color: var(--text-hint); min-width: 66px; text-align: right; padding-right: 4px; }
 .editor-body { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 2px 16px 16px; }
@@ -151,6 +191,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 10;
   display: flex; align-items: flex-end; animation: fade-in 0.15s ease;
 }
+.modal-mask.center { align-items: center; justify-content: center; padding: 16px; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .sheet {
   background: var(--card); width: 100%; border-radius: 28px 28px 0 0;
@@ -202,7 +243,34 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 }
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-primary:active { background: var(--accent-press); }
+.btn-secondary { background: var(--bg); color: var(--text-main); }
 .version { text-align: center; font-size: 11px; color: var(--text-hint); margin-top: 12px; }
+
+/* ---------- диалог вставки ссылки ---------- */
+.dialog {
+  background: var(--card);
+  border-radius: 24px;
+  padding: 20px;
+  width: 100%;
+  max-width: 340px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  animation: sheet-up 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.dialog h2 { font-size: 19px; font-weight: 700; margin-bottom: 14px; }
+.dialog .field { margin-bottom: 12px; }
+.dialog .field label {
+  display: block; font-size: 12.5px; color: var(--text-sec);
+  margin-bottom: 6px; padding-left: 4px;
+}
+.dialog .field input {
+  width: 100%; height: 44px; border: none; outline: none; border-radius: 14px;
+  background: var(--bg); color: var(--text-main); padding: 0 14px;
+  font-size: 14px; font-family: var(--font);
+}
+.dialog .field input:focus { box-shadow: 0 0 0 2px var(--accent-soft); }
+.dialog .field input::placeholder { color: var(--text-hint); }
+.dialog-actions { display: flex; gap: 8px; margin-top: 4px; }
+.dialog-actions .btn { margin-top: 0; }
 
 /* ---------- toast ---------- */
 .toast {
