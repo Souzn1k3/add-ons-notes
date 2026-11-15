@@ -23,16 +23,18 @@
 |---|---|
 | ![Главный экран, светлая тема](docs/screenshots/home-light.png) | ![Главный экран, тёмная тема](docs/screenshots/home-dark.png) |
 
-| Заметка с чек-листом | Редактор |
+| Заметка с чек-листом и ссылкой | Редактор |
 |---|---|
-| ![Просмотр заметки с чек-листом](docs/screenshots/reader.png) | ![Редактор заметки](docs/screenshots/editor.png) |
+| ![Просмотр заметки с чек-листом и ссылкой](docs/screenshots/reader.png) | ![Редактор заметки](docs/screenshots/editor.png) |
 
-![Настройки](docs/screenshots/settings.png)
+| Вставка ссылки | Настройки |
+|---|---|
+| ![Диалог вставки ссылки](docs/screenshots/link-dialog.png) | ![Настройки](docs/screenshots/settings.png) |
 
 ## Установка
 
 📦 **Скачать:** [Releases](https://github.com/Souzn1k3/add-ons-notes/releases)
-— архив `add-ons-notes-v2.0.1.zip`, распаковать и загрузить папку
+— архив `add-ons-notes-v2.1.0.zip`, распаковать и загрузить папку
 (где `manifest.json`) как распакованное расширение.
 
 Подробная инструкция для Samsung Internet / Chrome / Edge:
@@ -79,7 +81,7 @@ docs/
 
 - JS без сборки: модули ES, проверка синтаксиса `node --check`.
 - Тесты чистой логики: `npm test` (Node 18+; чек-листы, импорт, очередь записи).
-- История и теги — в git; актуальный релиз отмечен тегом `v2.0.1`.
+- История и теги — в git; актуальный релиз отмечен тегом `v2.1.0`.
 
 ## Trademark
 
