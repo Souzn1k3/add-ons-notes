@@ -1,8 +1,9 @@
 /* Заметки: локальное приложение внутри попапа. Без сети и сторонних сервисов. */
 
 import {
-  loadNotes, saveNotes, loadSettings, saveSettings, cleanupLegacy,
-  seedWelcomeIfNeeded, buildExport, validateImport, mergeNotes, makeId,
+  loadNotes, upsertNote, deleteNoteById, clearNotes, mergeImportNotes,
+  loadSettings, saveSettings, cleanupLegacy,
+  seedWelcomeIfNeeded, buildExport, validateImport, makeId,
   saveDraft, loadDraft, clearDraft,
   DEFAULT_SETTINGS,
 } from "./store.js";
@@ -200,7 +201,13 @@ async function togglePin(id) {
   if (!n) return;
   n.pinned = !n.pinned;
   n.updated = Date.now();
-  await saveNotes(state.notes);
+  try {
+    await upsertNote(n);
+  } catch (e) {
+    n.pinned = !n.pinned;
+    toast("Не удалось сохранить: " + (e && e.message ? e.message : "ошибка хранилища"));
+    return;
+  }
   renderHome();
   if (state.view === "reader" && state.currentId === id) renderReader(n);
 }
@@ -262,9 +269,16 @@ function openReader(id) {
 async function onToggleCheck(id, lineIndex, checked, labelEl) {
   const n = findNote(id);
   if (!n) return;
+  const prevBody = n.body;
   n.body = toggleCheckLine(n.body, lineIndex);
   n.updated = Date.now();
-  await saveNotes(state.notes);
+  try {
+    await upsertNote(n);
+  } catch (e) {
+    n.body = prevBody;
+    toast("Не удалось сохранить: " + (e && e.message ? e.message : "ошибка хранилища"));
+    return;
+  }
   if (labelEl) labelEl.classList.toggle("done", !!checked);
   const checks = countChecks(n.body);
   $("reader-meta").innerHTML =
@@ -325,7 +339,7 @@ async function flushEditor() {
   note.body = body;
   note.updated = now;
   try {
-    await saveNotes(state.notes);
+    await upsertNote(note);
     await clearDraft();
     setSaveState("Сохранено");
     return true;
@@ -444,8 +458,13 @@ function armDelete(button, action, kind, label) {
 async function deleteCurrentNote() {
   const n = findNote(state.currentId);
   if (!n) return;
+  try {
+    await deleteNoteById(n.id);
+  } catch (e) {
+    toast("Не удалось удалить: " + (e && e.message ? e.message : "ошибка хранилища"));
+    return;
+  }
   state.notes = state.notes.filter((x) => x.id !== n.id);
-  await saveNotes(state.notes);
   state.currentId = null;
   switchView("view-home");
   renderHome();
@@ -499,9 +518,8 @@ async function importFile(file) {
     const text = await file.text();
     const payload = JSON.parse(text);
     const incoming = validateImport(payload);
-    const { notes, added, updated } = mergeNotes(state.notes, incoming);
+    const { notes, added, updated } = await mergeImportNotes(incoming);
     state.notes = notes;
-    await saveNotes(state.notes);
     renderHome();
     renderSettingsUi();
     toast(`Импорт: добавлено ${added}, обновлено ${updated}`);
@@ -529,23 +547,25 @@ async function recoverDraft() {
           n.title = draft.title || "";
           n.body = draft.body || "";
           n.updated = now;
-          await saveNotes(state.notes);
+          await upsertNote(n);
           toast("Восстановлены несохранённые изменения");
         }
       } else {
-        state.notes.push({
+        const note = {
           id: draft.id, title: draft.title || "", body: draft.body || "",
           pinned: false, created: now, updated: now,
-        });
-        await saveNotes(state.notes);
+        };
+        state.notes.push(note);
+        await upsertNote(note);
         toast("Восстановлена несохранённая заметка");
       }
     } else {
-      state.notes.push({
+      const note = {
         id: makeId(), title: draft.title || "", body: draft.body || "",
         pinned: false, created: now, updated: now,
-      });
-      await saveNotes(state.notes);
+      };
+      state.notes.push(note);
+      await upsertNote(note);
       toast("Восстановлена несохранённая заметка");
     }
     await clearDraft();
@@ -633,14 +653,14 @@ async function init() {
   });
   $("btn-clear").addEventListener("click", (ev) => {
     armDelete(ev.currentTarget, async () => {
-      state.notes = [];
       try {
-        await saveNotes(state.notes);
+        await clearNotes();
         await clearDraft();
       } catch (e) {
         toast("Не удалось очистить: " + (e && e.message ? e.message : "ошибка хранилища"));
         return;
       }
+      state.notes = [];
       renderHome();
       renderSettingsUi();
       toast("Все заметки удалены");
@@ -668,6 +688,29 @@ async function init() {
     if (document.visibilityState === "hidden") flushNow();
   });
   window.addEventListener("pagehide", flushNow);
+
+  // Внешние изменения (пункт контекстного меню) — подхватываем без потери правок
+  chrome.storage.onChanged.addListener(async (changes, area) => {
+    if (area !== "local" || !changes["nb_notes_v1"]) return;
+    const fresh = await loadNotes();
+    if (JSON.stringify(fresh) === JSON.stringify(state.notes)) return;
+    if (state.view === "view-editor") {
+      const cur = state.currentId ? findNote(state.currentId) : null;
+      const merged = fresh.map((n) => (cur && n.id === cur.id && state.dirty ? cur : n));
+      if (cur && state.dirty && !merged.some((n) => n.id === cur.id)) merged.push(cur);
+      state.notes = merged;
+    } else {
+      state.notes = fresh;
+    }
+    if (state.view === "view-home") renderHome();
+    if (state.view === "view-reader" && state.currentId) {
+      const n = findNote(state.currentId);
+      if (n) renderReader(n);
+    }
+  });
+
+  // Бейдж «✓» мог остаться от контекстного меню — гасим при открытии попапа
+  try { chrome.action.setBadgeText({ text: "" }); } catch (_) { /* ignore */ }
 }
 
 document.addEventListener("DOMContentLoaded", init);

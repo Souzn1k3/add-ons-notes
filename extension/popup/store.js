@@ -14,19 +14,65 @@ export function makeId() {
 }
 
 /* Очередь записей: цепочка не «застревает» после ошибки,
-   но вызывающий получает настоящий промис с ошибкой (без проглатывания). */
-let chainTail = Promise.resolve();
+   но вызывающий получает настоящий промис с ошибкой (без проглатывания).
+   Все изменения идут под Web Lock, чтобы попап и фоновый обработчик
+   контекстного меню не затирали друг друга. */
+async function readAllNotes() {
+  const o = await chrome.storage.local.get({ [NOTES_KEY]: [] });
+  return Array.isArray(o[NOTES_KEY]) ? o[NOTES_KEY] : [];
+}
+
+function writeAllNotes(notes) {
+  return chrome.storage.local.set({ [NOTES_KEY]: notes });
+}
+
+function withNotesLock(fn) {
+  if (typeof navigator !== "undefined" && navigator.locks && navigator.locks.request) {
+    return navigator.locks.request("nb_notes_lock", fn);
+  }
+  return fn();
+}
 
 export function saveNotes(notes) {
   const snapshot = notes.map((n) => ({ ...n }));
-  const op = chainTail.then(() => chrome.storage.local.set({ [NOTES_KEY]: snapshot }));
-  chainTail = op.catch(() => {});
-  return op;
+  return withNotesLock(() => writeAllNotes(snapshot));
+}
+
+export function upsertNote(note) {
+  return withNotesLock(async () => {
+    const notes = await readAllNotes();
+    const copy = { ...note };
+    const idx = notes.findIndex((n) => n.id === copy.id);
+    if (idx >= 0) notes[idx] = copy;
+    else notes.push(copy);
+    await writeAllNotes(notes);
+    return notes;
+  });
+}
+
+export function deleteNoteById(id) {
+  return withNotesLock(async () => {
+    const notes = (await readAllNotes()).filter((n) => n.id !== id);
+    await writeAllNotes(notes);
+    return notes;
+  });
+}
+
+export function clearNotes() {
+  return withNotesLock(() => writeAllNotes([]));
+}
+
+export async function mergeImportNotes(incoming) {
+  return withNotesLock(async () => {
+    const notes = await readAllNotes();
+    const merged = mergeNotes(notes, incoming);
+    await writeAllNotes(merged.notes);
+    return merged;
+  });
 }
 
 export async function loadNotes() {
-  const o = await chrome.storage.local.get({ [NOTES_KEY]: [] });
-  return Array.isArray(o[NOTES_KEY]) ? o[NOTES_KEY] : [];
+  return readAllNotes();
 }
 
 export async function loadSettings() {
