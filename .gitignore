@@ -27,3 +27,7 @@ dist/
 .idea/
 Thumbs.db
 Desktop.ini
+
+# --- подписи/пакеты расширения (не коммитить) ---
+*.pem
+*.crx

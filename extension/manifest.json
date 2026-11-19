@@ -15,7 +15,7 @@
     }
   },
   "background": {
-    "service_worker": "background/service_worker.js",
+    "service_worker": "background/sw.js",
     "type": "module"
   },
   "permissions": ["storage", "unlimitedStorage", "contextMenus"],
