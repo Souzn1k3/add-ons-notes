@@ -8,22 +8,22 @@ const MENU_TITLE = "Добавить в браузерные заметки";
 const BADGE_TEXT = "✓";
 const BADGE_COLOR = "#20925e";
 
-function createMenu(withIcon = true) {
-  const props = {
-    id: MENU_ID,
-    title: MENU_TITLE,
-    contexts: ["selection"],
-  };
-  if (withIcon) {
-    props.icons = { "16": chrome.runtime.getURL("icons/icon16.png") };
+/* chrome.contextMenus.create не принимает поле icons
+   (в части сборок это синхронный TypeError) — создаём только валидные свойства. */
+function createMenu() {
+  if (!chrome.contextMenus || !chrome.contextMenus.create) return;
+  try {
+    chrome.contextMenus.create({
+      id: MENU_ID,
+      title: MENU_TITLE,
+      contexts: ["selection"],
+    }, () => {
+      // подавляем "Unchecked runtime.lastError" при дубликате id
+      void chrome.runtime.lastError;
+    });
+  } catch (e) {
+    console.warn("Не удалось создать пункт контекстного меню:", e);
   }
-  chrome.contextMenus.create(props, () => {
-    const err = chrome.runtime.lastError;
-    if (err && withIcon) {
-      // некоторые сборки не принимают иконку — пересоздаём без неё
-      createMenu(false);
-    }
-  });
 }
 
 function showBadge() {
@@ -39,21 +39,27 @@ function showBadge() {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.removeAll(() => createMenu());
-});
-
-chrome.runtime.onStartup.addListener(() => createMenu());
-
-chrome.contextMenus.onClicked.addListener(async (info) => {
-  if (info.menuItemId !== MENU_ID) return;
-  try {
-    const note = buildNoteFromSelection(info);
-    if (!note) return;
-    await upsertNote(note);
-    showBadge();
-  } catch (e) {
-    console.error("Не удалось сохранить фрагмент в заметки:", e);
+  if (chrome.contextMenus && chrome.contextMenus.removeAll) {
+    chrome.contextMenus.removeAll(() => createMenu());
+  } else {
+    createMenu();
   }
 });
+
+chrome.runtime.onStartup.addListener(createMenu);
+
+if (chrome.contextMenus && chrome.contextMenus.onClicked) {
+  chrome.contextMenus.onClicked.addListener(async (info) => {
+    if (info.menuItemId !== MENU_ID) return;
+    try {
+      const note = buildNoteFromSelection(info);
+      if (!note) return;
+      await upsertNote(note);
+      showBadge();
+    } catch (e) {
+      console.error("Не удалось сохранить фрагмент в заметки:", e);
+    }
+  });
+}
 
 createMenu();
