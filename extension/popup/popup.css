@@ -1,5 +1,20 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Единая клавиатурная обводка для всех интерактивных элементов */
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 html, body {
   width: 400px;
   height: 600px;

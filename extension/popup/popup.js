@@ -270,12 +270,14 @@ async function onToggleCheck(id, lineIndex, checked, labelEl) {
   const n = findNote(id);
   if (!n) return;
   const prevBody = n.body;
+  const prevUpdated = n.updated;
   n.body = toggleCheckLine(n.body, lineIndex);
   n.updated = Date.now();
   try {
     await upsertNote(n);
   } catch (e) {
     n.body = prevBody;
+    n.updated = prevUpdated;
     toast("Не удалось сохранить: " + (e && e.message ? e.message : "ошибка хранилища"));
     return;
   }
@@ -509,6 +511,34 @@ function downloadExport() {
   toast("Экспорт: " + name);
 }
 
+/* Резервный путь экспорта: JSON в буфер обмена (если скачивание
+   в конкретной сборке браузера не сработало). */
+async function copyExportJson() {
+  if (!state.notes.length) {
+    toast("Заметок нет — нечего копировать");
+    return;
+  }
+  const text = JSON.stringify(buildExport(state.notes, state.settings), null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("JSON скопирован в буфер (" + fmtBytes(new Blob([text]).size) + ")");
+    return;
+  } catch (_) { /* fallback ниже */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+    toast("JSON скопирован в буфер");
+  } catch (_) {
+    toast("Не удалось скопировать — используй «Экспорт заметок (JSON)»");
+  }
+}
+
 async function importFile(file) {
   if (file.size > 25 * 1024 * 1024) {
     toast("Файл слишком большой — лимит импорта 25 МБ");
@@ -645,6 +675,7 @@ async function init() {
   }
 
   $("btn-export").addEventListener("click", downloadExport);
+  $("btn-copy-json").addEventListener("click", copyExportJson);
   $("btn-import").addEventListener("click", () => $("import-file").click());
   $("import-file").addEventListener("change", async (ev) => {
     const file = ev.target.files && ev.target.files[0];

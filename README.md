@@ -36,7 +36,7 @@
 ## Установка
 
 📦 **Скачать:** [Releases](https://github.com/Souzn1k3/add-ons-notes/releases)
-— архив `add-ons-notes-v2.2.0.zip`, распаковать и загрузить папку
+— архив `add-ons-notes-v2.2.1.zip`, распаковать и загрузить папку
 (где `manifest.json`) как распакованное расширение.
 
 Подробная инструкция для Samsung Internet / Chrome / Edge:
@@ -64,26 +64,35 @@
 
 ```
 extension/
-  manifest.json        MV3, права: только storage
+  manifest.json        MV3; права: storage, unlimitedStorage, contextMenus
+  background/
+    sw.js              сервис-воркер: пункт контекстного меню
   icons/               иконки (генерируются tools/gen_icons.py)
   popup/
     popup.html         экраны: список, просмотр, редактор, настройки
-    popup.css          One UI стили
-    tokens.css         дизайн-токены (темы, акценты)
+    popup.css          One UI стили (светлая/тёмная, focus-visible)
+    tokens.css          дизайн-токены (темы, акценты, color-scheme)
     popup.js           логика приложения
-    store.js           локальное хранилище, экспорт/импорт
-    util.js            чек-листы, даты, сортировка
+    store.js           хранилище (Web Locks), экспорт/импорт, черновик
+    util.js            чек-листы, ссылки, даты, сортировка
+    selectionNote.js   заметка из выделенного текста (для контекстного меню)
+tests/
+  util.test.mjs        чистая логика: утилиты, ссылки, хранилище
+  selection.test.mjs   контекстное меню: формирование заметки + атомарные операции
 tools/
   gen_icons.py         генератор иконок (чистый Python)
 docs/
   design-references.md референсы One UI
+  screenshots/         скриншоты интерфейса
 ```
 
 ## Разработка
 
 - JS без сборки: модули ES, проверка синтаксиса `node --check`.
-- Тесты чистой логики: `npm test` (Node 18+; чек-листы, импорт, очередь записи).
-- История и теги — в git; актуальный релиз отмечен тегом `v2.2.0`.
+- Тесты чистой логики: `npm test` (Node 18+; чек-листы, ссылки,
+  формирование заметки из выделения, атомарные операции хранилища,
+  импорт/слияние, черновик).
+- История и теги — в git; актуальный релиз отмечен тегом `v2.2.1`.
 
 ## Trademark
 

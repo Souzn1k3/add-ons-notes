@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Заметки",
   "short_name": "Заметки",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Локальные заметки: чек-листы, ссылки, поиск, закрепление. В стиле One UI. Всё хранится только в браузере.",
   "minimum_chrome_version": "110",
   "action": {
